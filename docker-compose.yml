@@ -1,0 +1,92 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-novflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novflow}
+      POSTGRES_DB: ${POSTGRES_DB:-novflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-novflow} -d ${POSTGRES_DB:-novflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-novflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-novflowsecret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 2; done &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-novflow-chapters}
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-novflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-novflowsecret}
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-novflow}:${POSTGRES_PASSWORD:-novflow}@db:5432/${POSTGRES_DB:-novflow}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      DEMO_EMAIL: ${DEMO_EMAIL:-demo@example.com}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo123456}
+      JIMENG_API_KEY: ${JIMENG_API_KEY:-}
+      JIMENG_BASE_URL: ${JIMENG_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      JIMENG_MODEL: ${JIMENG_MODEL:-doubao-seedream-4-0-250828}
+      USE_MINIO: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-novflow}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-novflowsecret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-novflow-chapters}
+      MINIO_SECURE: "false"
+      CORS_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:80
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  minio_data:

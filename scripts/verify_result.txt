@@ -1,0 +1,8 @@
+health: {'status': 'ok', 'deepseek_configured': False, 'database': 'postgresql', 'minio_enabled': True, 'minio_bucket': 'novflow-chapters'}
+auth ok user=verify_test@example.com
+settings: configured=True
+book: id=3 setup_step=1
+worldview: id=1
+characters: count=0
+chapter1: status=planned
+ALL CHECKS PASSED
