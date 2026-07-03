@@ -5,6 +5,7 @@ import json
 import asyncio
 from app.database import get_db
 from app.deps import get_current_user
+from app.deps_license import require_desktop_license
 from app.models import Book, User, WriteAgentMessage
 from app.schemas import (
     SetupApplyIn,
@@ -31,7 +32,11 @@ from app.services.write_agent import (
 )
 from app.services.write_agent_context import compress_write_agent_session, get_context_status
 
-router = APIRouter(prefix="/books/{book_id}/write-agent", tags=["write-agent"])
+router = APIRouter(
+    prefix="/books/{book_id}/write-agent",
+    tags=["write-agent"],
+    dependencies=[Depends(require_desktop_license)],
+)
 
 
 def _owned(db: Session, book_id: int, user: User) -> Book:

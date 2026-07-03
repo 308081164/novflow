@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import io
 import logging
+from pathlib import Path
 
 from minio import Minio
 from minio.error import S3Error
 
-from app.config import settings
+from app.config import DATA_DIR, settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,22 @@ class StorageService:
     @property
     def enabled(self) -> bool:
         return settings.use_minio
+
+    @property
+    def _local_media_root(self) -> Path:
+        root = DATA_DIR / "media"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _local_path(self, object_key: str) -> Path:
+        key = object_key.lstrip("/").replace("\\", "/")
+        if not key or ".." in key.split("/"):
+            raise ValueError(f"Invalid object key: {object_key}")
+        path = (self._local_media_root / key).resolve()
+        root = self._local_media_root.resolve()
+        if path != root and root not in path.parents:
+            raise ValueError(f"Invalid object key: {object_key}")
+        return path
 
     def _get_client(self) -> Minio:
         if self._client is None:
@@ -35,6 +52,7 @@ class StorageService:
 
     def ensure_bucket(self) -> None:
         if not self.enabled:
+            self._local_media_root.mkdir(parents=True, exist_ok=True)
             return
         try:
             client = self._get_client()
@@ -88,7 +106,10 @@ class StorageService:
 
     def put_bytes(self, object_key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         if not self.enabled:
-            raise RuntimeError("MinIO 未启用，无法存储图片")
+            path = self._local_path(object_key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            return
         client = self._get_client()
         client.put_object(
             settings.minio_bucket,
@@ -99,8 +120,13 @@ class StorageService:
         )
 
     def get_bytes(self, object_key: str) -> bytes | None:
-        if not self.enabled or not object_key:
+        if not object_key:
             return None
+        if not self.enabled:
+            path = self._local_path(object_key)
+            if not path.is_file():
+                return None
+            return path.read_bytes()
         client = self._get_client()
         try:
             response = client.get_object(settings.minio_bucket, object_key)
@@ -115,7 +141,15 @@ class StorageService:
             raise
 
     def delete_object(self, object_key: str) -> None:
-        if not self.enabled or not object_key:
+        if not object_key:
+            return
+        if not self.enabled:
+            try:
+                path = self._local_path(object_key)
+                if path.is_file():
+                    path.unlink()
+            except (ValueError, OSError):
+                pass
             return
         client = self._get_client()
         try:
@@ -124,7 +158,32 @@ class StorageService:
             pass
 
     def delete_prefix(self, prefix: str) -> None:
-        if not self.enabled or not prefix:
+        if not prefix:
+            return
+        if not self.enabled:
+            import shutil
+
+            clean = prefix.lstrip("/").replace("\\", "/").rstrip("/")
+            if not clean or ".." in clean.split("/"):
+                return
+            root = self._local_media_root.resolve()
+            target = (root / clean).resolve()
+            if target != root and root not in target.parents:
+                return
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.is_file():
+                target.unlink(missing_ok=True)
+            else:
+                prefix_slash = f"{clean}/"
+                for path in root.rglob("*"):
+                    rel = path.relative_to(root).as_posix()
+                    if rel == clean or rel.startswith(prefix_slash):
+                        if path.is_file():
+                            path.unlink(missing_ok=True)
+                remaining = root / clean
+                if remaining.is_dir():
+                    shutil.rmtree(remaining, ignore_errors=True)
             return
         client = self._get_client()
         bucket = settings.minio_bucket

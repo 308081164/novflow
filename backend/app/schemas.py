@@ -37,6 +37,10 @@ class UserSettingsIn(BaseModel):
     jimeng_api_key: Optional[str] = None
     jimeng_base_url: Optional[str] = None
     jimeng_model: Optional[str] = None
+    image_backend: Optional[str] = None
+    local_dlc_base_url: Optional[str] = None
+    local_dlc_tier: Optional[str] = None
+    local_dlc_prompt_mode: Optional[str] = None
 
 
 class UserSettingsOut(BaseModel):
@@ -47,6 +51,31 @@ class UserSettingsOut(BaseModel):
     jimeng_api_key_masked: str = ""
     jimeng_base_url: str = ""
     jimeng_model: str = ""
+    image_backend: str = "jimeng"
+    local_dlc_base_url: str = "http://127.0.0.1:17860/v1"
+    local_dlc_tier: str = "auto"
+    local_dlc_prompt_mode: str = "raw"
+    local_dlc_eula_accepted: bool = False
+    local_dlc_eula_accepted_at: Optional[datetime] = None
+
+
+class ImageEngineStatusOut(BaseModel):
+    backend: str
+    reachable: bool
+    status: str = "unknown"
+    tier: str = ""
+    model: str = ""
+    vram_mb: int = 0
+    message: str = ""
+
+
+class ImageEngineTestOut(BaseModel):
+    ok: bool = True
+    message: str = ""
+
+
+class ImageEngineEulaIn(BaseModel):
+    accepted: bool = True
 
 
 class BookCreate(BaseModel):
@@ -89,6 +118,16 @@ class BookImportOut(BookOut):
     has_writing_prefs: bool = False
     ai_adapted: bool = False
     adapt_warning: str = ""
+
+
+class BookPackageImportOut(BookOut):
+    imported_characters: int = 0
+    chapter_plans: int = 0
+    chapters_with_content: int = 0
+    setup_messages: int = 0
+    write_agent_messages: int = 0
+    media_files: int = 0
+    illustrations: int = 0
 
 
 class BookSetupUpdate(BaseModel):

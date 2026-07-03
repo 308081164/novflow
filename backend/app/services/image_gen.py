@@ -13,7 +13,13 @@ from app.models import Book, Chapter, ChapterIllustration, Character, User
 from app.services.agent_constants import IMAGE_KEYWORDS, IMAGE_REFINE_KEYWORDS
 from app.services.api_key import has_jimeng_key, resolve_api_key
 from app.services.chapter_content import get_content
-from app.services.image_providers.base import generate_and_store, media_url as _media_url_from_provider
+from app.services.image_providers.base import (
+    ImageEngineError,
+    generate_and_store,
+    has_image_generation,
+    media_url as _media_url_from_provider,
+    resolve_image_backend,
+)
 from app.services.jimeng_image import JimengError
 from app.services.storage import storage
 
@@ -116,6 +122,32 @@ def _rule_fallback_scene_brief(passage: str) -> str:
     return "网文章节插图，日常叙事场景，中景构图，柔和光线，写实插画，健康全年龄，无文字无水印"
 
 
+def _use_local_raw_prompts(user: User) -> bool:
+    return resolve_image_backend(user) == "local_dlc" and (user.local_dlc_prompt_mode or "raw").strip() == "raw"
+
+
+def _image_backend_unconfigured_message(user: User) -> str:
+    backend = resolve_image_backend(user)
+    if backend == "off":
+        return "生图功能已关闭。请在设置中选择云端即梦或本地 DLC 后端。"
+    if backend == "local_dlc":
+        return (
+            "本地生图未就绪。请安装并启动 Image Engine DLC，"
+            "在设置页确认免责声明并测试连接。"
+        )
+    return "请先在设置中配置即梦 API Key。"
+
+
+def _image_generation_error_message(exc: Exception, user: User) -> str:
+    if isinstance(exc, ImageEngineError):
+        return f"本地引擎错误：{exc}"
+    if isinstance(exc, JimengError):
+        if is_sensitive_image_error(exc):
+            return f"云端审核拒绝：{exc}。可尝试本地 DLC 后端或调整选段。"
+        return f"云端即梦错误：{exc}"
+    return f"图片生成失败：{exc}"
+
+
 def is_sensitive_image_error(exc: JimengError) -> bool:
     text = str(exc).lower()
     return "sensitive information" in text or "敏感" in text or "content" in text and "policy" in text
@@ -127,10 +159,12 @@ async def build_image_safe_scene_brief(
     chapter: Chapter,
     passage: str,
 ) -> str:
-    """将正文/选段转为适合即梦文生图的安全场景描述。"""
+    """将正文/选段转为适合即梦文生图的安全场景描述；本地 raw 模式跳过洗稿。"""
     passage = (passage or "").strip()
     if not passage:
         return _rule_fallback_scene_brief("")
+    if _use_local_raw_prompts(user):
+        return passage[:600]
     if not resolve_api_key(user):
         return _rule_fallback_scene_brief(passage)
     from app.services.ai_assist import _chat
@@ -285,8 +319,8 @@ async def generate_book_cover(
     book: Book,
     prompt: str | None = None,
 ) -> dict[str, Any]:
-    if not has_jimeng_key(user):
-        raise JimengError("请先在设置中配置即梦 API Key")
+    if not has_image_generation(user):
+        raise JimengError(_image_backend_unconfigured_message(user))
     final_prompt = (prompt or "").strip() or build_cover_prompt(book)
     object_key, _ = await _call_and_store(user, book.id, "cover", final_prompt)
     book.cover_image_key = object_key
@@ -303,8 +337,8 @@ async def generate_character_image(
     prompt: str | None = None,
     parent_object_key: str | None = None,
 ) -> dict[str, Any]:
-    if not has_jimeng_key(user):
-        raise JimengError("请先在设置中配置即梦 API Key")
+    if not has_image_generation(user):
+        raise JimengError(_image_backend_unconfigured_message(user))
     extra = (prompt or "").strip()
     final_prompt = build_character_prompt(character, extra)
     refs = [parent_object_key] if parent_object_key else None
@@ -335,8 +369,8 @@ async def generate_chapter_illustration(
     parent_object_key: str | None = None,
     character_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    if not has_jimeng_key(user):
-        raise JimengError("请先在设置中配置即梦 API Key")
+    if not has_image_generation(user):
+        raise JimengError(_image_backend_unconfigured_message(user))
 
     all_characters = db.query(Character).filter(Character.book_id == book.id).all()
     if character_ids:
@@ -420,9 +454,9 @@ async def maybe_handle_chat_image(
     msg = (message or "").strip()
     if not is_image_generation_message(msg) and not is_image_refine_message(msg):
         return None
-    if not has_jimeng_key(user):
+    if not has_image_generation(user):
         return {
-            "reply": "生成图片需要配置即梦 API Key。请前往「账号设置」填写火山方舟 API Key 后重试。",
+            "reply": _image_backend_unconfigured_message(user),
             "images": [],
             "handled": True,
         }
@@ -489,14 +523,20 @@ async def maybe_handle_chat_image(
             parent_id=parent_id,
             character_ids=[c.id for c in scene_chars] if scene_chars else None,
         )
-        note = "（已根据选段自动转为含蓄的场景描述以满足生图审核）" if quoted_passage else ""
+        note = ""
+        if quoted_passage:
+            if _use_local_raw_prompts(user):
+                note = "（本地引擎，选段原样提示词，未经云端审核）"
+            else:
+                note = "（已根据选段自动转为含蓄的场景描述以满足生图审核）"
+        local_tag = "（本地引擎）" if resolve_image_backend(user) == "local_dlc" and not note else ""
         return {
-            "reply": f"已生成第{chapter.chapter_no}章插图，可在章节编辑器末尾查看。{note}如需修改请说「调整这张图…」。",
+            "reply": f"已生成第{chapter.chapter_no}章插图，可在章节编辑器末尾查看。{note or local_tag}如需修改请说「调整这张图…」。",
             "images": [img],
             "handled": True,
         }
-    except JimengError as exc:
-        return {"reply": f"图片生成失败：{exc}", "images": [], "handled": True}
+    except (JimengError, ImageEngineError) as exc:
+        return {"reply": _image_generation_error_message(exc, user), "images": [], "handled": True}
 
 
 def list_chapter_illustrations(db: Session, chapter: Chapter) -> list[dict[str, Any]]:

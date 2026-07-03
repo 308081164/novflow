@@ -31,7 +31,7 @@
 ```mermaid
 flowchart TB
     subgraph Local["本地桌面客户端（模式 1 / 2）"]
-        DesktopShell["Tauri / Electron 壳"]
+        DesktopShell["pywebview 壳（v1）\nWebView2 · 1280×800"]
         LocalUI["React SPA（复用 frontend）"]
         LocalAPI["嵌入式 FastAPI\nSQLite + 可选 MinIO Lite"]
         SyncAgent["Sync Agent\n按书 pull/push"]
@@ -94,9 +94,10 @@ flowchart TB
 
 | 方案 | 工作量 | 优劣 |
 |------|--------|------|
-| **A. Tauri + sidecar Python** | 中 | 体积小；需打包 Python 运行时 |
-| **B. Electron + 内嵌 uvicorn** | 中高 | 生态成熟；包体积大 |
-| **C. 继续「本地 Web」+ 安装器** | 低 | 最快；体验偏开发者工具 |
+| **A. pywebview + sidecar Python（v1）** | 低 | ✅ 当前选型；WebView2 嵌入，失败回退浏览器 |
+| **B. Tauri + sidecar Python** | 中 | 体积小；后续可选升级 |
+| **C. Electron + 内嵌 uvicorn** | 中高 | 生态成熟；包体积大 |
+| **D. 继续「本地 Web」+ 安装器** | 低 | 已超越；v1 已换壳 |
 
 **关键改造**
 
@@ -104,7 +105,9 @@ flowchart TB
 - 本地 DB 与云端 **book 使用不同 ID 空间**：本地 `local_id` + 全局 `cloud_book_uuid`
 - API Key **仅存本地**（见 3.8），云端 Agent 调用需「本地代理 LLM」或「云端代调 + 用量计费」二选一
 
-**评估：可行，15–25 人日（含打包、更新、首次运行向导）**
+**评估：可行，12–20 人日（含打包、更新、首次运行向导；pywebview 换壳已落地部分工作量）**
+
+**版本策略（非 raw Git）：** 书籍检查点 + `ChapterVersion` 时间线 + Agent `apply_edits` 前自动快照；完整 Git 分支 **延后**。详见 [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md)。
 
 ---
 
@@ -384,7 +387,7 @@ ALLOW_WITHOUT_MEMBERSHIP = [
 
 | 阶段 | 目标 | 人日 | 交付物 |
 |------|------|------|--------|
-| **P0** | 本地桌面化 | 15–25 | Tauri/Electron 安装包、嵌入式 SQLite、自动启动 |
+| **P0** | 本地桌面化 | 10–18 | pywebview 安装包、嵌入式 SQLite、自动启动（Electron/Tauri 延后） |
 | **P1** | 云后端多租户基线 | 10–15 | PG 强制、用户体系、MinIO key 重构、media 鉴权 |
 | **P2** | 按书云同步 MVP | 20–30 | cloud_uuid、首次上传、增量 pull/push、冲突 UI（章级） |
 | **P3** | Agent 历史 + 图片同步 | 15–20 | 消息 incremental sync、blob manifest |
@@ -450,4 +453,6 @@ ALLOW_WITHOUT_MEMBERSHIP = [
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 当前系统架构与 Agent 编排
 - [STANDALONE_DESKTOP.md](./STANDALONE_DESKTOP.md) — 本地独立安装包与零配置可行性
+- [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — 三大支柱权威路线图
+- [LOCAL_IMAGE_DLC.md](./LOCAL_IMAGE_DLC.md) — 本地生图扩展
 - [README](../README.md) — 快速开始与使用流程

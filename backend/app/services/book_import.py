@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 from app.models import Book, Character, User, Worldview
-from app.services.book_import_adapt import safe_adapt
+from app.services.book_import_adapt import MAX_CHARACTER_FILES, safe_adapt
 from app.services.card_handlers import apply_card_by_type
 from app.services.character_cards import sync_character_card
 from app.services.pipeline import create_book_from_template
@@ -142,21 +143,78 @@ async def create_book_from_import(
     ctx = {
         "book_title": title.strip(),
         "genre": genre,
-        "premise": premise,
+        "premise": premise[:500] if premise else "",
         "target_chapters": target_chapters,
     }
     warnings: list[str] = []
+    infos: list[str] = []
     ai_adapted = False
+    ai_success = 0
+    ai_fallback = 0
+
+    def _record(result: Any | None, warn: str | None, info: str | None) -> None:
+        nonlocal ai_adapted, ai_success, ai_fallback
+        if info:
+            infos.append(info)
+        if warn:
+            warnings.append(warn)
+            if result is not None:
+                ai_fallback += 1
+        elif result is not None:
+            ai_adapted = True
+            ai_success += 1
 
     worldview_text = await _read_upload(worldview_file)
+
+    char_files = character_files or []
+    if len(char_files) > MAX_CHARACTER_FILES:
+        warnings.append(f"角色文件超过 {MAX_CHARACTER_FILES} 个，仅处理前 {MAX_CHARACTER_FILES} 个")
+        char_files = char_files[:MAX_CHARACTER_FILES]
+
+    imported_chars = 0
+    character_names: list[str] = []
+    for cf in char_files:
+        text = await _read_upload(cf)
+        if not text:
+            continue
+        name_hint = _name_from_filename(cf.filename or "角色.txt")
+        character_names.append(name_hint)
+        char_data = None
+        if adapt_with_ai:
+            char_data, warn, info = await safe_adapt(
+                "character",
+                text,
+                user,
+                label=f"角色·{name_hint}",
+                name_hint=name_hint,
+                **ctx,
+            )
+            _record(char_data, warn, info)
+        if char_data:
+            name = str(char_data.get("name") or name_hint).strip()
+            if name:
+                character_names[-1] = name
+            sync_character_card(
+                db,
+                book,
+                {
+                    "type": "character",
+                    "title": name or name_hint,
+                    "data": char_data,
+                },
+                overwrite=True,
+            )
+        else:
+            ch = _apply_character(db, book, cf.filename or "角色.txt", text)
+            if ch.name:
+                character_names[-1] = ch.name
+        imported_chars += 1
+
     if worldview_text:
         wv_data = None
         if adapt_with_ai:
-            wv_data, warn = await safe_adapt("worldview", worldview_text, user, **ctx)
-            if warn:
-                warnings.append(warn)
-            elif wv_data:
-                ai_adapted = True
+            wv_data, warn, info = await safe_adapt("worldview", worldview_text, user, label="世界观", **ctx)
+            _record(wv_data, warn, info)
         if wv_data:
             apply_card_by_type(db, book, "worldview", wv_data)
         else:
@@ -166,11 +224,15 @@ async def create_book_from_import(
     if outline_text:
         outline_data = None
         if adapt_with_ai:
-            outline_data, warn = await safe_adapt("outline", outline_text, user, **ctx)
-            if warn:
-                warnings.append(warn)
-            elif outline_data:
-                ai_adapted = True
+            outline_data, warn, info = await safe_adapt(
+                "outline",
+                outline_text,
+                user,
+                label="故事大纲",
+                character_names=character_names,
+                **ctx,
+            )
+            _record(outline_data, warn, info)
         if outline_data:
             _apply_outline_adapted(db, book, outline_data, target_chapters)
         else:
@@ -181,58 +243,18 @@ async def create_book_from_import(
     if writing_prefs:
         adapted_prefs = None
         if adapt_with_ai:
-            adapted_prefs, warn = await safe_adapt("prefs", writing_prefs, user, **ctx)
-            if warn:
-                warnings.append(warn)
-            elif adapted_prefs:
-                ai_adapted = True
+            adapted_prefs, warn, info = await safe_adapt("prefs", writing_prefs, user, label="写作偏好", **ctx)
+            _record(adapted_prefs, warn, info)
         prefs_parts.append(f"## 写作偏好\n\n{adapted_prefs or writing_prefs}")
     conventions = await _read_upload(conventions_file)
     if conventions:
         adapted_conv = None
         if adapt_with_ai:
-            adapted_conv, warn = await safe_adapt("conventions", conventions, user, **ctx)
-            if warn:
-                warnings.append(warn)
-            elif adapted_conv:
-                ai_adapted = True
+            adapted_conv, warn, info = await safe_adapt("conventions", conventions, user, label="写作规约", **ctx)
+            _record(adapted_conv, warn, info)
         prefs_parts.append(f"## 写作规约\n\n{adapted_conv or conventions}")
     if prefs_parts:
         book.writing_rules = "\n\n".join(prefs_parts)
-
-    imported_chars = 0
-    for cf in character_files or []:
-        text = await _read_upload(cf)
-        if not text:
-            continue
-        name_hint = _name_from_filename(cf.filename or "角色.txt")
-        char_data = None
-        if adapt_with_ai:
-            char_data, warn = await safe_adapt(
-                "character",
-                text,
-                user,
-                name_hint=name_hint,
-                **ctx,
-            )
-            if warn:
-                warnings.append(warn)
-            elif char_data:
-                ai_adapted = True
-        if char_data:
-            sync_character_card(
-                db,
-                book,
-                {
-                    "type": "character",
-                    "title": char_data.get("name") or name_hint,
-                    "data": char_data,
-                },
-                overwrite=True,
-            )
-        else:
-            _apply_character(db, book, cf.filename or "角色.txt", text)
-        imported_chars += 1
 
     if not premise and outline_text:
         book.premise = outline_text[:500]
@@ -240,14 +262,23 @@ async def create_book_from_import(
 
     db.commit()
     db.refresh(book)
-    # 去重警告，避免多次 API 失败重复提示
     unique_warnings = list(dict.fromkeys(w for w in warnings if w))
+    unique_infos = list(dict.fromkeys(i for i in infos if i))
+    adapt_parts: list[str] = []
+    if unique_warnings:
+        adapt_parts.append("；".join(unique_warnings[:4]))
+        if len(unique_warnings) > 4:
+            adapt_parts[-1] += f" 等 {len(unique_warnings)} 条"
+    if unique_infos and adapt_with_ai:
+        adapt_parts.append("摘要：" + "；".join(unique_infos[:2]))
     stats: dict[str, int | bool | str] = {
         "characters": imported_chars,
         "has_worldview": bool(worldview_text),
         "has_outline": bool(outline_text),
         "has_writing_prefs": bool(writing_prefs or conventions),
         "ai_adapted": ai_adapted and adapt_with_ai,
-        "adapt_warning": unique_warnings[0] if unique_warnings else "",
+        "adapt_warning": "。".join(adapt_parts) if adapt_parts else "",
+        "adapt_ai_success": ai_success,
+        "adapt_ai_fallback": ai_fallback,
     }
     return book, stats

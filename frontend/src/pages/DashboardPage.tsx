@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { BookOpen, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { BookOpen, FileUp, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, Book } from "../api";
 import { PageHeader, EmptyState, StatCard, Badge } from "../components/Layout";
 
@@ -86,11 +86,14 @@ function BookEditModal({
 }
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
+  const packageInputRef = useRef<HTMLInputElement>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Book | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Book | null>(null);
+  const [importingPackage, setImportingPackage] = useState(false);
 
   useEffect(() => {
     api.books().then(setBooks).finally(() => setLoading(false));
@@ -117,15 +120,58 @@ export default function DashboardPage() {
     }
   };
 
+  const handleImportPackage = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".zip") && !file.name.toLowerCase().endsWith(".novflow.zip")) {
+      window.alert("请选择 .novflow.zip 书籍包文件");
+      return;
+    }
+    setImportingPackage(true);
+    try {
+      const book = await api.importPackage(file);
+      setBooks((prev) => [book, ...prev]);
+      navigate(`/books/${book.id}`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "导入失败");
+    } finally {
+      setImportingPackage(false);
+      if (packageInputRef.current) packageInputRef.current.value = "";
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="我的书库"
         desc="管理作品、继续写作或从模板创建新书"
         action={
-          <Link to="/new" className="btn-primary">
-            <Plus className="h-4 w-4" /> 新建书籍
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={packageInputRef}
+              type="file"
+              accept=".zip,.novflow.zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleImportPackage(file);
+              }}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={importingPackage}
+              onClick={() => packageInputRef.current?.click()}
+            >
+              {importingPackage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileUp className="h-4 w-4" />
+              )}
+              导入书籍包
+            </button>
+            <Link to="/new" className="btn-primary">
+              <Plus className="h-4 w-4" /> 新建书籍
+            </Link>
+          </div>
         }
       />
 

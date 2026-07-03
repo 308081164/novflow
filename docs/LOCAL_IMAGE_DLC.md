@@ -272,26 +272,28 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 
 ### 7.2 后端
 
-- [ ] `image_providers/local_dlc.py` — `LocalDlcProvider`
-- [ ] `resolve_image_backend(user)` / `has_image_generation(user)`
-- [ ] `GET /settings/image-engine/status` — 代理探测 DLC `/health`
-- [ ] `image_gen.py` — `maybe_handle_chat_image` 分支：本地模式跳过云端审核洗稿（可配置）
-- [ ] 错误类型统一：`ImageEngineError`（与 `JimengError` 并列），前端友好文案
+- [x] `image_providers/local_dlc.py` — `LocalDlcProvider`
+- [x] `resolve_image_backend(user)` / `has_image_generation(user)`
+- [x] `GET /settings/image-engine/status` — 代理探测 DLC `/health`
+- [x] `POST /settings/image-engine/test` — 测试生成
+- [x] `POST /settings/image-engine/eula` — 免责声明确认
+- [x] `image_gen.py` — `maybe_handle_chat_image` 分支：本地 `raw` 模式跳过云端洗稿
+- [x] 错误类型统一：`ImageEngineError`（与 `JimengError` 并列），前端友好文案
 
 ### 7.3 前端
 
-- [ ] 设置页新增卡片：**本地生图扩展（DLC）**
+- [x] 设置页新增卡片：**本地生图扩展（DLC）**
   - 状态灯：未检测到 / 运行中 / 错误
-  - 下载说明链接（**外链至 DLC 发布页，非内置下载**）
-  - 后端切换：云端即梦 / 本地 DLC
-  - 「测试连接」「打开引擎控制台」
-  - 常驻免责摘要 + 查看完整 EULA
-- [ ] 生图失败提示区分：云端审核 vs 本地 OOM vs 引擎未启动
+  - 下载说明（文档链接 + stub 指引）
+  - 后端切换：云端即梦 / 本地 DLC / 关闭
+  - 「测试连接」「刷新状态」
+  - 常驻免责摘要 + EULA 确认
+- [x] 生图失败提示区分：云端审核 vs 本地 OOM vs 引擎未启动（后端文案 + 前端展示）
 
 ### 7.4 写作 Agent
 
-- 快捷操作「为本章生成场景插图」：若 `image_backend=local_dlc`，提示词可走 `raw` 模式（用户选段直传本地）。
-- 回复模板区分：`已生成插图（本地引擎，未经云端审核）`。
+- [x] 快捷操作「为本章生成场景插图」：若 `image_backend=local_dlc` + `raw`，选段直传本地
+- [x] 回复模板区分：`已生成插图（本地引擎，未经云端审核）`
 
 ---
 
@@ -359,8 +361,8 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 
 ### Phase 2 — NovFlow 对接（1–2 周）
 
-- [ ] `LocalDlcProvider` + 设置页 + 健康检查
-- [ ] 封面 / 立绘 / 插图三路径端到端测试
+- [x] `LocalDlcProvider` + 设置页 + 健康检查（stub 引擎 `image-engine/`）
+- [ ] 封面 / 立绘 / 插图三路径端到端测试（需 stub 或正式引擎联调）
 
 ### Phase 3 — Standard/Pro 与体验（2–3 周）
 
@@ -403,6 +405,7 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 现有 `ImageProvider` 与即梦路径
 - [STANDALONE_DESKTOP.md](./STANDALONE_DESKTOP.md) — 桌面一键安装与本地存储策略
+- [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — 产品路线图
 
 ### 12.3 文档变更记录
 

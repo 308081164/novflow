@@ -192,6 +192,22 @@ export type UserSettings = {
   jimeng_api_key_masked: string;
   jimeng_base_url: string;
   jimeng_model: string;
+  image_backend: "jimeng" | "local_dlc" | "off";
+  local_dlc_base_url: string;
+  local_dlc_tier: string;
+  local_dlc_prompt_mode: "raw" | "assist";
+  local_dlc_eula_accepted: boolean;
+  local_dlc_eula_accepted_at?: string | null;
+};
+
+export type ImageEngineStatus = {
+  backend: string;
+  reachable: boolean;
+  status: string;
+  tier: string;
+  model: string;
+  vram_mb: number;
+  message: string;
 };
 
 export type GeneratedImage = {
@@ -416,7 +432,22 @@ export const api = {
     jimeng_api_key?: string;
     jimeng_base_url?: string;
     jimeng_model?: string;
+    image_backend?: "jimeng" | "local_dlc" | "off";
+    local_dlc_base_url?: string;
+    local_dlc_tier?: string;
+    local_dlc_prompt_mode?: "raw" | "assist";
   }) => req<UserSettings>("/settings", { method: "PUT", body: JSON.stringify(data) }),
+
+  getImageEngineStatus: () => req<ImageEngineStatus>("/settings/image-engine/status"),
+
+  testImageEngine: () =>
+    req<{ ok: boolean; message: string }>("/settings/image-engine/test", { method: "POST" }),
+
+  acceptImageEngineEula: () =>
+    req<UserSettings>("/settings/image-engine/eula", {
+      method: "POST",
+      body: JSON.stringify({ accepted: true }),
+    }),
 
   testJimeng: (data?: { api_key?: string; base_url?: string; model?: string }) =>
     req<{ status: string; message: string; model?: string; requested_model?: string }>(
@@ -616,6 +647,68 @@ export const api = {
   updateSetup: (id: number, data: Partial<Book>) =>
     req<Book>(`/books/${id}/setup`, { method: "PATCH", body: JSON.stringify(data) }),
   exportUrl: (id: number) => `${API}/books/${id}/export`,
+  exportPackage: async (id: number) => {
+    const token = getToken();
+    const res = await fetch(`${API}/books/${id}/export-package`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      clearToken();
+      window.location.href = "/login";
+      throw new Error("未登录");
+    }
+    if (!res.ok) {
+      let msg = "导出失败";
+      try {
+        const j = await res.json();
+        msg = typeof j.detail === "string" ? j.detail : msg;
+      } catch {
+        msg = (await res.text()) || msg;
+      }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+    const filename = match ? decodeURIComponent(match[1] || match[2]) : "book.novflow.zip";
+    return { blob, filename };
+  },
+  importPackage: async (file: File) => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("package", file);
+    const res = await fetch(`${API}/books/import-package`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (res.status === 401) {
+      clearToken();
+      window.location.href = "/login";
+      throw new Error("未登录");
+    }
+    if (!res.ok) {
+      let msg = "导入失败";
+      try {
+        const j = await res.json();
+        msg = typeof j.detail === "string" ? j.detail : msg;
+      } catch {
+        msg = (await res.text()) || msg;
+      }
+      throw new Error(msg);
+    }
+    return res.json() as Promise<
+      Book & {
+        imported_characters: number;
+        chapter_plans: number;
+        chapters_with_content: number;
+        setup_messages: number;
+        write_agent_messages: number;
+        media_files: number;
+        illustrations: number;
+      }
+    >;
+  },
   bookResources: (id: number) => req<BookResources>(`/books/${id}/resources`),
   saveBookResources: (id: number, data: Partial<Pick<BookResources, "author_preferences" | "writing_rules" | "corpus">>) =>
     req<BookResources>(`/books/${id}/resources`, { method: "PATCH", body: JSON.stringify(data) }),

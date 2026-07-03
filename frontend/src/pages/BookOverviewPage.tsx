@@ -56,6 +56,7 @@ export default function BookOverviewPage() {
   const [coverImage, setCoverImage] = useState<GeneratedImage | null>(null);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [coverErr, setCoverErr] = useState("");
+  const [exportingPackage, setExportingPackage] = useState(false);
   const [coverLightbox, setCoverLightbox] = useState(false);
   const [showCoverRefine, setShowCoverRefine] = useState(false);
   const [chapterFilter, setChapterFilter] = useState<ChapterFilter>("all");
@@ -134,6 +135,22 @@ export default function BookOverviewPage() {
         a.download = `${book?.title ?? "book"}.txt`;
         a.click();
       });
+  };
+
+  const exportPackage = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setExportingPackage(true);
+    try {
+      const { blob, filename } = await api.exportPackage(id);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setExportingPackage(false);
+    }
   };
 
   if (!book) {
@@ -300,6 +317,19 @@ export default function BookOverviewPage() {
                 <button type="button" className="btn-secondary inline-flex" onClick={exportTxt}>
                   <Download className="h-4 w-4" />
                   导出 TXT
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary inline-flex"
+                  onClick={exportPackage}
+                  disabled={exportingPackage}
+                >
+                  {exportingPackage ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  导出完整包
                 </button>
               </div>
             </div>

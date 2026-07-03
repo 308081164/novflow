@@ -18,7 +18,7 @@
 | 零电脑知识 | **不能** | 需懂「双击安装、打开浏览器、粘贴 Key」 |
 | 零配置 | **不能** | 至少一次 DeepSeek Key + 联网 |
 
-**务实定义：**「奶奶级」= 双击桌面图标 → 浏览器自动打开 → 注册/登录 → 设置里粘贴 Key → 开始写书。不需要装 Python、Node、Docker，不需要编辑 `.env`，不需要看黑窗口终端。
+**务实定义：**「奶奶级」= 双击桌面图标 → **嵌入式窗口**（pywebview / WebView2）自动打开 → 注册/登录 → 设置里粘贴 Key → 开始写书。pywebview 不可用时回退系统浏览器。不需要装 Python、Node、Docker，不需要编辑 `.env`，不需要看黑窗口终端。
 
 ---
 
@@ -55,7 +55,7 @@
 |------|------|
 | 捆绑 Python 运行时 | PyInstaller / Nuitka / embedded Python sidecar |
 | 预编译前端 | 安装包内带 `frontend/dist`，不能在用户机器上 `npm install` |
-| 无终端自启后端 | 启动器隐藏启动 uvicorn，自动打开浏览器 |
+| 无终端自启后端 | 启动器隐藏启动 uvicorn，**pywebview 嵌入窗口**（回退浏览器） |
 | SQLite + 本地文件 | 默认 `USE_MINIO=false`；**图片需补本地 filesystem 存储** |
 | 首次运行向导 | 欢迎页 → 数据目录 → 粘贴 Key |
 | Windows 安装器 | Inno Setup / NSIS / WiX |
@@ -74,7 +74,7 @@
 |-----------|------|
 | `start.ps1` | 依赖系统 `python`、`npm`；每次 build；前台 uvicorn；不自动开浏览器 |
 | `start.bat` | 与 README 不一致：dev 双窗口、演示账号文案不同 |
-| 无安装包脚本 | 没有任何 Inno Setup / Tauri / Electron 打包 |
+| 无安装包脚本 | ~~没有任何 Inno Setup / Tauri / Electron 打包~~ → **已有** PyInstaller + Inno Setup（见 `desktop/build.ps1`） |
 
 ### 功能在桌面模式的硬缺口
 
@@ -97,7 +97,7 @@
 ### 目标态（打包完成后）
 
 1. 双击 `NovFlowSetup.exe` 安装
-2. 双击「NovFlow」，浏览器自动打开
+2. 双击「NovFlow」，**嵌入式应用窗口**打开（非独立浏览器标签）
 3. 首次向导粘贴 DeepSeek Key（可跳过，仅规则质检可用）
 4. 注册 → 新建书籍 → 写作 → 导出 TXT
 5. 数据在 `%AppData%/NovFlow/data/`
@@ -148,8 +148,9 @@
 
 | 方案 | 人天 | 说明 |
 |------|------|------|
-| **Tauri + sidecar Python** | 12–18 | 推荐；复用率 >90% |
-| **Electron + 内嵌 uvicorn** | 15–22 | 包体积大 |
+| **pywebview + sidecar Python（v1 ✅）** | 2–3（壳）+ 打包 | 当前实现；WebView2 |
+| **Tauri + sidecar Python** | 12–18 | 后续可选 |
+| **Electron + 内嵌 uvicorn** | 15–22 | 包体积大，v1 不做 |
 | **纯离线前端重写** | 45–70 | 不推荐；等于 fork 后端 |
 
 ---
@@ -165,5 +166,7 @@
 ## 相关文档
 
 - [HYBRID_ARCHITECTURE.md](./HYBRID_ARCHITECTURE.md) — 本地 + 云端 + 管理后台混合架构
+- [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — 产品三大支柱路线图
+- [LOCAL_IMAGE_DLC.md](./LOCAL_IMAGE_DLC.md) — 本地生图 DLC
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 当前系统架构
 - [README](../README.md) — 快速开始

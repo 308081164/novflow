@@ -3,11 +3,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.deps_license import require_desktop_license
 from app.models import Book, User
 from app.schemas import BookSetupUpdate, CharacterAiIn, CharacterOut, OutlineAiIn, WorldviewOut
 from app.services.ai_assist import generate_character, generate_outline, generate_writing_rules
 
-router = APIRouter(prefix="/books/{book_id}/ai", tags=["ai"])
+router = APIRouter(
+    prefix="/books/{book_id}/ai",
+    tags=["ai"],
+    dependencies=[Depends(require_desktop_license)],
+)
 
 
 def _book(db: Session, book_id: int, user: User) -> Book:

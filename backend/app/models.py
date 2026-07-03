@@ -17,6 +17,11 @@ class User(Base):
     jimeng_api_key: Mapped[str] = mapped_column(String(255), default="")
     jimeng_base_url: Mapped[str] = mapped_column(String(255), default="")
     jimeng_model: Mapped[str] = mapped_column(String(120), default="")
+    image_backend: Mapped[str] = mapped_column(String(20), default="jimeng")
+    local_dlc_base_url: Mapped[str] = mapped_column(String(255), default="http://127.0.0.1:17860/v1")
+    local_dlc_tier: Mapped[str] = mapped_column(String(20), default="auto")
+    local_dlc_prompt_mode: Mapped[str] = mapped_column(String(20), default="raw")
+    local_dlc_eula_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     books: Mapped[list["Book"]] = relationship(back_populates="owner")

@@ -1,0 +1,94 @@
+name: Build License Admin APK
+
+on:
+  push:
+    tags:
+      - "license-admin-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Inject issuer private key
+        env:
+          PRIVATE_KEY_HEX: ${{ secrets.NOVFLOW_ISSUER_PRIVATE_PKCS8_HEX }}
+        run: |
+          set -euo pipefail
+          ASSETS_DIR="mobile/license-admin-android/app/src/main/assets"
+          mkdir -p "$ASSETS_DIR"
+          if [ -z "${PRIVATE_KEY_HEX:-}" ]; then
+            echo "::error::GitHub Secret NOVFLOW_ISSUER_PRIVATE_PKCS8_HEX 未配置"
+            exit 1
+          fi
+          echo "$PRIVATE_KEY_HEX" | tr -d '\n\r ' | xxd -r -p > "$ASSETS_DIR/issuer-private.der"
+          test -s "$ASSETS_DIR/issuer-private.der"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configure SDK path
+        working-directory: mobile/license-admin-android
+        run: echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build release APK
+        working-directory: mobile/license-admin-android
+        run: gradle assembleRelease --no-daemon
+
+      - name: Rename APK
+        run: |
+          SRC="mobile/license-admin-android/app/build/outputs/apk/release/app-release.apk"
+          DEST="mobile/license-admin-android/app/build/outputs/apk/release/NovFlow激活码管理.apk"
+          cp "$SRC" "$DEST"
+          ls -la "$(dirname "$DEST")"
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=license-admin-dev-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: NovFlow 激活码管理 Android ${{ steps.meta.outputs.tag }}
+          body: |
+            ## NovFlow 激活码管理（Android）
+
+            离线 Ed25519 签发，支持 **NovFlow Desktop** 与 **Image Engine DLC** 两种产品。
+
+            ### 安装
+            1. 下载 `NovFlow激活码管理.apk`
+            2. 允许安装未知来源应用
+            3. 选择产品类型 → 粘贴用户 HW_ID → 生成激活码
+
+            ### 注意
+            - 本 APK 含发行方私钥，**仅限管理员本人使用，切勿公开分发**
+            - 构建依赖仓库 Secret：`NOVFLOW_ISSUER_PRIVATE_PKCS8_HEX`
+          files: mobile/license-admin-android/app/build/outputs/apk/release/NovFlow激活码管理.apk
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

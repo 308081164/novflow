@@ -1,13 +1,26 @@
+import zipfile
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Book, Chapter, User
-from app.schemas import BookCreate, BookImportOut, BookOut, BookResourcesIn, BookResourcesOut, BookSetupUpdate, SyncSettingsOut
+from app.schemas import (
+    BookCreate,
+    BookImportOut,
+    BookOut,
+    BookPackageImportOut,
+    BookResourcesIn,
+    BookResourcesOut,
+    BookSetupUpdate,
+    SyncSettingsOut,
+)
 from app.services.book_delete import delete_book as delete_book_service
 from app.services.book_import import create_book_from_import
+from app.services.book_package import export_book_package, import_book_package
 from app.services.chapter_content import get_content, has_content
 from app.services.image_gen import media_url
 from app.services.pipeline import create_book_from_template, export_book_txt, ensure_book_chapter_slots, count_outline_planned
@@ -116,6 +129,34 @@ async def import_book(
     )
 
 
+@router.post("/import-package", response_model=BookPackageImportOut)
+async def import_book_package_route(
+    package: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    raw = await package.read()
+    if not raw:
+        raise HTTPException(400, "请上传 .novflow.zip 书籍包")
+    try:
+        book, stats = import_book_package(db, user.id, raw)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(400, "无效的 zip 文件") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    out = book_to_out(book, db)
+    return BookPackageImportOut(
+        **out.model_dump(),
+        imported_characters=int(stats.get("characters") or 0),
+        chapter_plans=int(stats.get("chapter_plans") or 0),
+        chapters_with_content=int(stats.get("chapters_with_content") or 0),
+        setup_messages=int(stats.get("setup_messages") or 0),
+        write_agent_messages=int(stats.get("write_agent_messages") or 0),
+        media_files=int(stats.get("media_files") or 0),
+        illustrations=int(stats.get("illustrations") or 0),
+    )
+
+
 @router.get("/{book_id}", response_model=BookOut)
 def get_book(book_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return book_to_out(_get_owned(db, book_id, user), db)
@@ -166,6 +207,16 @@ def export_book(book_id: int, db: Session = Depends(get_db), user: User = Depend
     _get_owned(db, book_id, user)
     text = export_book_txt(db, book_id)
     return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/{book_id}/export-package")
+def export_book_package_route(
+    book_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    book = _get_owned(db, book_id, user)
+    data, filename = export_book_package(db, book)
+    disp = f"attachment; filename*=UTF-8''{quote(filename)}"
+    return Response(content=data, media_type="application/zip", headers={"Content-Disposition": disp})
 
 
 def _book_resources_out(book: Book) -> BookResourcesOut:

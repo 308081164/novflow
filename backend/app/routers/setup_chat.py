@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.deps_license import require_desktop_license
 from app.models import Book, User
 from app.routers.books import book_to_out
 from app.schemas import (
@@ -33,7 +34,11 @@ from app.services.setup_agent import (
     sync_reconciled_card_statuses,
 )
 
-router = APIRouter(prefix="/books/{book_id}/setup/chat", tags=["setup-chat"])
+router = APIRouter(
+    prefix="/books/{book_id}/setup/chat",
+    tags=["setup-chat"],
+    dependencies=[Depends(require_desktop_license)],
+)
 
 
 def _get_owned(db: Session, book_id: int, user: User) -> Book:

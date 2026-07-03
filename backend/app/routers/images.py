@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user_id
 from app.database import get_db
+from app.deps_license import require_desktop_license
 from app.models import Book, Chapter, Character, ChapterIllustration, User
 from app.schemas import (
     CharacterImageGenerateIn,
@@ -23,11 +24,12 @@ from app.services.image_gen import (
     media_url,
     set_active_portrait_object_key,
 )
+from app.services.image_providers.base import ImageEngineError
 from app.services.image_upload import ImageUploadError, upload_book_cover, upload_character_image, upload_chapter_illustration
 from app.services.jimeng_image import JimengError, test_connection
 from app.services.storage import storage
 
-router = APIRouter(tags=["images"])
+router = APIRouter(tags=["images"], dependencies=[Depends(require_desktop_license)])
 
 
 async def _read_image_file(file: UploadFile) -> tuple[bytes, str, str | None]:
@@ -109,7 +111,7 @@ async def test_jimeng_api(data: JimengTestIn, user: User = Depends(_auth_user)):
         raise HTTPException(400, "请提供 API Key")
     try:
         return await test_connection(key, base_url=base, model=model)
-    except JimengError as exc:
+    except (JimengError, ImageEngineError) as exc:
         raise HTTPException(400, str(exc))
 
 
@@ -140,7 +142,7 @@ async def generate_cover(
     try:
         img = await generate_book_cover(db, user, book, data.prompt)
         return GeneratedImageOut(**img)
-    except JimengError as exc:
+    except (JimengError, ImageEngineError) as exc:
         raise HTTPException(400, str(exc))
 
 
@@ -191,7 +193,7 @@ async def generate_character_image_api(
             db, user, book, ch, data.prompt, data.parent_object_key
         )
         return GeneratedImageOut(**img)
-    except JimengError as exc:
+    except (JimengError, ImageEngineError) as exc:
         raise HTTPException(400, str(exc))
 
 
@@ -325,7 +327,7 @@ async def generate_illustration_api(
             character_ids=data.character_ids,
         )
         return GeneratedImageOut(**img)
-    except JimengError as exc:
+    except (JimengError, ImageEngineError) as exc:
         raise HTTPException(400, str(exc))
 
 
@@ -395,5 +397,5 @@ async def refine_image(
             return GeneratedImageOut(**img)
 
         raise HTTPException(400, "无效的精修参数")
-    except JimengError as exc:
+    except (JimengError, ImageEngineError) as exc:
         raise HTTPException(400, str(exc))

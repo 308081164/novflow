@@ -1,0 +1,5 @@
+"""客户端内置发行方 Ed25519 公钥（SPKI DER hex）。私钥仅保存在 tools/.issuer-private.der。"""
+
+EMBEDDED_ISSUER_PUBLIC_KEY_HEX = (
+    "302a300506032b65700321004615edddf20c342769637bc7b611ff0c36a9327067226ceb3d9a390552ab6e99"
+)

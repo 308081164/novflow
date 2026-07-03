@@ -114,6 +114,22 @@ def migrate() -> None:
 
         ChapterIllustration.__table__.create(bind=engine, checkfirst=True)
 
+    dlc_user_alters = [
+        ("users", "image_backend", "VARCHAR(20)", "'jimeng'"),
+        ("users", "local_dlc_base_url", "VARCHAR(255)", "'http://127.0.0.1:17860/v1'"),
+        ("users", "local_dlc_tier", "VARCHAR(20)", "'auto'"),
+        ("users", "local_dlc_prompt_mode", "VARCHAR(20)", "'raw'"),
+    ]
+    for table, col, typ, default in dlc_user_alters:
+        if table in inspect(engine).get_table_names() and not column_exists(table, col):
+            val = default.strip("'")
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ} DEFAULT '{val}'"))
+
+    if "users" in inspect(engine).get_table_names() and not column_exists("users", "local_dlc_eula_accepted_at"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN local_dlc_eula_accepted_at DATETIME"))
+
     if "setup_messages" in inspect(engine).get_table_names() and not column_exists("setup_messages", "meta_json"):
         with engine.begin() as conn:
             if dialect == "postgresql":

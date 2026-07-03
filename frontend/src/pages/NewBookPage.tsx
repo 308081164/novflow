@@ -324,7 +324,7 @@ export default function NewBookPage() {
             </div>
             <FileField
               label="角色设定"
-              hint="可上传多个文件，每个文件对应一名角色；文件名建议含角色名"
+              hint="可上传多个文件，每个文件单独梳理（建议单文件 5000 字内）；文件名建议含角色名"
               multiple
               files={characterFiles}
               onChange={setCharacterFiles}
@@ -337,7 +337,7 @@ export default function NewBookPage() {
             />
             <FileField
               label="故事大纲"
-              hint="主线剧情、阶段划分或章节规划"
+              hint="可含 Markdown/表格/阶段划分；AI 会分离元信息并结构化首批章节（最多 15 章）"
               files={outlineFiles}
               onChange={setOutlineFiles}
             />
@@ -363,7 +363,7 @@ export default function NewBookPage() {
               <div>
                 <div className="text-sm font-medium text-slate-800">AI 梳理导入内容（推荐）</div>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  上传后由 AI 整理为系统角色卡、世界观、大纲等结构化格式；未配置 API Key 时自动按原文导入
+                  各文档独立调用 AI 梳理，长文会先分块摘要再结构化；多角色文件会逐个处理，耗时随文件数增加
                 </p>
               </div>
             </label>
@@ -374,7 +374,7 @@ export default function NewBookPage() {
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading
             ? mode === "import" && adaptWithAi
-              ? "AI 正在梳理导入内容…"
+              ? "正在逐份梳理导入文档（文件多时会较久）…"
               : "处理中…"
             : mode === "blank"
               ? "创建并进入 AI 助手"

@@ -7,10 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import ROOT, settings
+from app.config import DATA_DIR, ROOT, settings
 from app.database import SessionLocal
 from app.db_init import init_database
-from app.routers import ai, auth, books, chapters, characters, images, settings as settings_router, setup_chat, worldview, write_agent
+from app.routers import ai, auth, books, chapters, characters, images, license, settings as settings_router, setup_chat, worldview, write_agent
 from app.services.pipeline import ensure_demo_user
 from app.services.storage import storage
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_database()
-    (ROOT / "data").mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     if storage.enabled:
         storage.ensure_bucket()
     db = SessionLocal()
@@ -50,6 +50,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(license.router, prefix="/api/v1")
 app.include_router(settings_router.router, prefix="/api/v1")
 app.include_router(books.router, prefix="/api/v1")
 app.include_router(characters.router, prefix="/api/v1")
@@ -63,7 +64,7 @@ app.include_router(images.router, prefix="/api/v1")
 
 @app.get("/api/v1/health")
 def health():
-    return {
+    payload = {
         "status": "ok",
         "deepseek_configured": bool(settings.deepseek_api_key),
         "database": "postgresql" if settings.database_url.startswith("postgresql") else "sqlite",
@@ -71,11 +72,28 @@ def health():
         "minio_bucket": settings.minio_bucket if settings.use_minio else None,
         "jimeng_configured": bool(settings.jimeng_api_key),
     }
+    import os
+
+    if os.environ.get("NOVFLOW_DESKTOP", "").strip() in ("1", "true", "yes"):
+        try:
+            from app.license_bridge import DESKTOP, LicenseService
+
+            st = LicenseService(DESKTOP).status()
+            payload["desktop_license"] = {
+                "activated": bool(st.get("activated")),
+                "product_id": DESKTOP.product_id,
+                "error": st.get("error"),
+            }
+        except Exception as exc:
+            payload["desktop_license"] = {"activated": False, "error": str(exc)}
+    return payload
 
 
 STATIC_DIR = ROOT / "frontend" / "dist"
-if STATIC_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+ASSETS_DIR = STATIC_DIR / "assets"
+if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
+    if ASSETS_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):

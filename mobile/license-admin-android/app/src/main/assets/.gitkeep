@@ -1,0 +1,1 @@
+# 构建时由 GitHub Actions 注入 issuer-private.der，勿手动提交私钥。

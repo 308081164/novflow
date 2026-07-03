@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 import { Link } from "react-router-dom";
 
-import { CheckCircle, Key, Loader2, Save, Sparkles } from "lucide-react";
+import { CheckCircle, HardDrive, Key, Loader2, Save, Sparkles } from "lucide-react";
 
-import { api } from "../api";
+import { api, type ImageEngineStatus } from "../api";
 
 import { PageHeader } from "../components/Layout";
 
@@ -46,6 +46,28 @@ export default function SettingsPage() {
 
   const [jimengTestMsg, setJimengTestMsg] = useState("");
 
+  const [imageBackend, setImageBackend] = useState<"jimeng" | "local_dlc" | "off">("jimeng");
+
+  const [localDlcBaseUrl, setLocalDlcBaseUrl] = useState("http://127.0.0.1:17860/v1");
+
+  const [localDlcTier, setLocalDlcTier] = useState("auto");
+
+  const [localDlcPromptMode, setLocalDlcPromptMode] = useState<"raw" | "assist">("raw");
+
+  const [eulaAccepted, setEulaAccepted] = useState(false);
+
+  const [eulaChecked, setEulaChecked] = useState(false);
+
+  const [engineStatus, setEngineStatus] = useState<ImageEngineStatus | null>(null);
+
+  const [loadingEngineStatus, setLoadingEngineStatus] = useState(false);
+
+  const [testingEngine, setTestingEngine] = useState(false);
+
+  const [engineTestMsg, setEngineTestMsg] = useState("");
+
+  const [acceptingEula, setAcceptingEula] = useState(false);
+
   const [msg, setMsg] = useState("");
 
   const [err, setErr] = useState("");
@@ -72,9 +94,55 @@ export default function SettingsPage() {
 
       setJimengModel(s.jimeng_model || DEFAULT_JIMENG_MODEL);
 
+      setImageBackend(s.image_backend || "jimeng");
+
+      setLocalDlcBaseUrl(s.local_dlc_base_url || "http://127.0.0.1:17860/v1");
+
+      setLocalDlcTier(s.local_dlc_tier || "auto");
+
+      setLocalDlcPromptMode(s.local_dlc_prompt_mode || "raw");
+
+      setEulaAccepted(s.local_dlc_eula_accepted);
+
     });
 
   }, []);
+
+
+
+  const refreshEngineStatus = async () => {
+
+    setLoadingEngineStatus(true);
+
+    try {
+
+      const st = await api.getImageEngineStatus();
+
+      setEngineStatus(st);
+
+    } catch {
+
+      setEngineStatus(null);
+
+    } finally {
+
+      setLoadingEngineStatus(false);
+
+    }
+
+  };
+
+
+
+  useEffect(() => {
+
+    if (imageBackend === "local_dlc") {
+
+      refreshEngineStatus();
+
+    }
+
+  }, [imageBackend]);
 
 
 
@@ -98,7 +166,31 @@ export default function SettingsPage() {
 
         jimeng_model?: string;
 
-      } = { display_name: displayName, jimeng_base_url: jimengBaseUrl, jimeng_model: jimengModel };
+        image_backend?: "jimeng" | "local_dlc" | "off";
+
+        local_dlc_base_url?: string;
+
+        local_dlc_tier?: string;
+
+        local_dlc_prompt_mode?: "raw" | "assist";
+
+      } = {
+
+        display_name: displayName,
+
+        jimeng_base_url: jimengBaseUrl,
+
+        jimeng_model: jimengModel,
+
+        image_backend: imageBackend,
+
+        local_dlc_base_url: localDlcBaseUrl,
+
+        local_dlc_tier: localDlcTier,
+
+        local_dlc_prompt_mode: localDlcPromptMode,
+
+      };
 
       if (apiKey.trim()) data.deepseek_api_key = apiKey.trim();
 
@@ -118,6 +210,8 @@ export default function SettingsPage() {
 
       setJimengApiKey("");
 
+      setEulaAccepted(s.local_dlc_eula_accepted);
+
       setMsg("设置已保存");
 
       await refreshUser();
@@ -133,6 +227,102 @@ export default function SettingsPage() {
     }
 
   };
+
+
+
+  const acceptEula = async () => {
+
+    if (!eulaChecked) {
+
+      setErr("请先勾选免责声明");
+
+      return;
+
+    }
+
+    setAcceptingEula(true);
+
+    setErr("");
+
+    try {
+
+      const s = await api.acceptImageEngineEula();
+
+      setEulaAccepted(s.local_dlc_eula_accepted);
+
+      setMsg("已确认本地生图免责声明");
+
+    } catch (e) {
+
+      setErr(String(e));
+
+    } finally {
+
+      setAcceptingEula(false);
+
+    }
+
+  };
+
+
+
+  const testLocalEngine = async () => {
+
+    setTestingEngine(true);
+
+    setEngineTestMsg("");
+
+    setErr("");
+
+    try {
+
+      const res = await api.testImageEngine();
+
+      setEngineTestMsg(res.message || "连接成功");
+
+      await refreshEngineStatus();
+
+    } catch (e) {
+
+      setEngineTestMsg("");
+
+      setErr(String(e));
+
+    } finally {
+
+      setTestingEngine(false);
+
+    }
+
+  };
+
+
+
+  const engineStatusLabel = () => {
+
+    if (imageBackend !== "local_dlc") return null;
+
+    if (!eulaAccepted) return { text: "待确认免责声明", color: "text-amber-600" };
+
+    if (loadingEngineStatus) return { text: "检测中…", color: "text-slate-500" };
+
+    if (!engineStatus) return { text: "未知", color: "text-slate-500" };
+
+    if (engineStatus.reachable) {
+
+      const tier = engineStatus.tier ? ` · ${engineStatus.tier}` : "";
+
+      return { text: `运行中${tier}`, color: "text-emerald-600" };
+
+    }
+
+    return { text: engineStatus.message || "未检测到引擎", color: "text-red-600" };
+
+  };
+
+
+
+  const statusInfo = engineStatusLabel();
 
 
 
@@ -372,6 +562,228 @@ export default function SettingsPage() {
             </button>
 
             {jimengTestMsg && <span className="text-xs text-emerald-600">{jimengTestMsg}</span>}
+
+          </div>
+
+        </div>
+
+
+
+        <div className="border-t border-slate-100 pt-5">
+
+          <label className="label flex items-center gap-2">
+
+            <HardDrive className="h-4 w-4" /> 本地生图扩展（DLC）
+
+          </label>
+
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 leading-relaxed">
+
+            <p className="font-medium">免责摘要</p>
+
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+
+              <li>本地生图内容由用户本人生成并负责；NovFlow 不对其合法性、版权与传播后果承担责任。</li>
+
+              <li>DLC 为独立可选扩展，不含内容审查；须遵守所在地法律法规。</li>
+
+              <li>主程序与 DLC 分开发布；未安装时行为与现版本一致。</li>
+
+            </ul>
+
+          </div>
+
+          <div className="space-y-3">
+
+            <div>
+
+              <label className="label text-xs">生图后端</label>
+
+              <select
+
+                className="input text-sm"
+
+                value={imageBackend}
+
+                onChange={(e) => setImageBackend(e.target.value as "jimeng" | "local_dlc" | "off")}
+
+              >
+
+                <option value="jimeng">云端即梦</option>
+
+                <option value="local_dlc">本地 DLC</option>
+
+                <option value="off">关闭生图</option>
+
+              </select>
+
+            </div>
+
+            {statusInfo && (
+
+              <p className={`text-sm ${statusInfo.color}`}>引擎状态：{statusInfo.text}</p>
+
+            )}
+
+            {!eulaAccepted && imageBackend === "local_dlc" && (
+
+              <div className="rounded-lg border border-slate-200 p-3">
+
+                <label className="flex items-start gap-2 text-sm">
+
+                  <input
+
+                    type="checkbox"
+
+                    className="mt-1"
+
+                    checked={eulaChecked}
+
+                    onChange={(e) => setEulaChecked(e.target.checked)}
+
+                  />
+
+                  <span>我已阅读并同意本地生图免责声明，知晓内容自负且 DLC 不含审查。</span>
+
+                </label>
+
+                <button
+
+                  type="button"
+
+                  className="btn-secondary mt-2 text-xs"
+
+                  onClick={acceptEula}
+
+                  disabled={acceptingEula}
+
+                >
+
+                  {acceptingEula ? "提交中…" : "确认并启用"}
+
+                </button>
+
+              </div>
+
+            )}
+
+            {imageBackend === "local_dlc" && eulaAccepted && (
+
+              <>
+
+                <input
+
+                  className="input font-mono text-sm"
+
+                  placeholder="DLC Base URL"
+
+                  value={localDlcBaseUrl}
+
+                  onChange={(e) => setLocalDlcBaseUrl(e.target.value)}
+
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+
+                  <div>
+
+                    <label className="label text-xs">显存档</label>
+
+                    <select
+
+                      className="input text-sm"
+
+                      value={localDlcTier}
+
+                      onChange={(e) => setLocalDlcTier(e.target.value)}
+
+                    >
+
+                      <option value="auto">自动</option>
+
+                      <option value="lite">Lite（4GB+）</option>
+
+                      <option value="standard">Standard（8GB+）</option>
+
+                      <option value="pro">Pro（12GB+）</option>
+
+                    </select>
+
+                  </div>
+
+                  <div>
+
+                    <label className="label text-xs">提示词模式</label>
+
+                    <select
+
+                      className="input text-sm"
+
+                      value={localDlcPromptMode}
+
+                      onChange={(e) => setLocalDlcPromptMode(e.target.value as "raw" | "assist")}
+
+                    >
+
+                      <option value="raw">原样（不洗稿）</option>
+
+                      <option value="assist">轻度优化（DeepSeek）</option>
+
+                    </select>
+
+                  </div>
+
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+
+                  DLC 需单独下载安装，详见项目文档 LOCAL_IMAGE_DLC.md。开发测试可运行{" "}
+
+                  <code className="rounded bg-slate-100 px-1">image-engine/start.ps1</code> stub。
+
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+
+                  <button
+
+                    type="button"
+
+                    className="btn-secondary text-xs"
+
+                    onClick={testLocalEngine}
+
+                    disabled={testingEngine}
+
+                  >
+
+                    {testingEngine ? (
+
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+
+                    ) : (
+
+                      <CheckCircle className="h-3.5 w-3.5" />
+
+                    )}
+
+                    测试本地引擎
+
+                  </button>
+
+                  <button type="button" className="btn-secondary text-xs" onClick={refreshEngineStatus}>
+
+                    刷新状态
+
+                  </button>
+
+                  {engineTestMsg && <span className="text-xs text-emerald-600">{engineTestMsg}</span>}
+
+                </div>
+
+              </>
+
+            )}
 
           </div>
 

@@ -18,6 +18,7 @@
 |------|--------|--------------|----------|
 | 本地开发 | SQLite | DB TEXT 列 | `start.ps1` / `start-backend.ps1` |
 | Docker 部署 | PostgreSQL | MinIO 对象存储 | `docker compose up -d` |
+| **Windows 离线版** | SQLite（`%LocalAppData%\NovFlow\`） | 本地文件 + DB | 双击 `NovFlow.exe`（pywebview 嵌入窗口） |
 
 - 元数据（书名、字数、状态、标题等）始终存在数据库
 - MinIO 存储章节 Markdown 正文（`{book_id}/{chapter_no}.md`）与生成图片
@@ -37,7 +38,7 @@
 
 **完整架构图、模块表与深度分析** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-**扩展规划与可行性分析** → [docs/HYBRID_ARCHITECTURE.md](docs/HYBRID_ARCHITECTURE.md)（本地+云端+管理后台）、[docs/STANDALONE_DESKTOP.md](docs/STANDALONE_DESKTOP.md)（桌面独立安装）
+**扩展规划与可行性分析** → [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md)（权威路线图）、[docs/HYBRID_ARCHITECTURE.md](docs/HYBRID_ARCHITECTURE.md)（本地+云端+管理后台）、[docs/STANDALONE_DESKTOP.md](docs/STANDALONE_DESKTOP.md)（桌面独立安装）、[docs/LOCAL_IMAGE_DLC.md](docs/LOCAL_IMAGE_DLC.md)（本地生图 DLC）
 
 ---
 
@@ -132,6 +133,60 @@ docker compose up -d --build    # 构建 + 启动（一条命令）
 
 ---
 
+## Windows 离线安装包打包
+
+面向**无需 Docker、无需本机 Python/Node** 的桌面分发场景。打包产物为 `.exe` 安装程序，内含便携 Python 运行时、后端与预编译前端。
+
+### 前置依赖（仅打包机器需要）
+
+| 工具 | 用途 | 下载 |
+|------|------|------|
+| **Node.js 18+** | 构建前端 `npm run build` | https://nodejs.org/ |
+| **Python 3.11+** | 创建便携 venv、PyInstaller | https://www.python.org/downloads/（请用官方安装包，避免 MSYS Python） |
+| **Inno Setup 6** | 生成 `NovFlowSetup.exe` | https://jrsoftware.org/isdl.php |
+
+### 一键打包
+
+在 `novflow/` 根目录执行：
+
+```powershell
+.\package-desktop.ps1
+```
+
+脚本会自动：构建前端 → 复制后端 → 打包便携 Python 运行时 → 生成 `NovFlow.exe` 启动器 → 调用 Inno Setup 编译安装包。
+
+**产出路径：**
+
+| 文件 | 说明 |
+|------|------|
+| `dist/NovFlowSetup.exe` | 安装程序（分发给用户/测试） |
+| `dist/novflow-installer-stage/NovFlow.exe` | 绿色版，免安装本机调试 |
+
+仅生成绿色版 staging（不编译安装包，可不装 Inno Setup）：
+
+```powershell
+.\package-desktop.ps1 -StageOnly
+```
+
+### 版本号与安装行为
+
+- 修改安装包版本：编辑 `installer/novflow.iss` 中的 `#define MyAppVersion`
+- 用户数据目录：`%LocalAppData%\NovFlow\`（覆盖安装**不会**删除已有书籍）
+- 启动后浏览器自动打开；需在设置页粘贴 DeepSeek API Key 后使用 AI 功能
+
+### 打包常见问题
+
+| 现象 | 处理 |
+|------|------|
+| `无法加载，因为在此系统上禁止运行脚本` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`，或在 PowerShell 中直接运行上述命令 |
+| `passlib.handlers still missing` | 脚本会自动重装；若仍失败，删除 `dist/novflow-installer-stage` 后重试 |
+| `未找到 Inno Setup 6` | 安装 Inno Setup 6，或使用 `-StageOnly` 仅出绿色版 |
+| 安装后提示前端资源缺失 | 重新运行 `.\package-desktop.ps1` 完整打包（勿单独跳过 staging 步骤） |
+
+更多桌面版架构说明 → [docs/STANDALONE_DESKTOP.md](docs/STANDALONE_DESKTOP.md)
+
+---
+
 ## 使用流程（从零创作）
 
 1. **注册/登录** → **设置** 中填入 DeepSeek API Key  
@@ -150,6 +205,7 @@ docker compose up -d --build    # 构建 + 启动（一条命令）
 | 规则修复 | 一键修复逗号、破折号 |
 | 定稿 | 无 error 后可定稿 |
 | 导出 | 全书 TXT |
+| 书籍包迁移 | 导出/导入 `.novflow.zip` 完整包（跨设备、跨账号） |
 
 ## 目录结构
 
@@ -179,6 +235,9 @@ novflow/
       components/write/ WriteAgentPanel、LintEditor
       utils/            chapterDiff、writeAgentMessage
   docker-compose.yml    PostgreSQL + MinIO + 前后端
+  package-desktop.ps1   Windows 离线安装包一键打包
+  desktop/              桌面版启动器与 staging 构建脚本
+  installer/            Inno Setup 安装包配置（novflow.iss）
   start.ps1             本地生产模式启动
 ```
 

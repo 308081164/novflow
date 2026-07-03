@@ -1,4 +1,4 @@
-"""ImageProvider 协议与 Jimeng 实现。"""
+"""ImageProvider 协议、路由与 Jimeng / Local DLC 实现。"""
 from __future__ import annotations
 
 import uuid
@@ -6,11 +6,19 @@ from typing import Literal, Protocol
 
 from app.config import settings
 from app.models import User
-from app.services.api_key import resolve_jimeng_config
+from app.services.api_key import has_jimeng_key, resolve_jimeng_config
 from app.services.jimeng_image import JimengError, generate_image
 from app.services.storage import storage
 
 ImageKind = Literal["cover", "character", "illustration"]
+ImageBackend = Literal["jimeng", "local_dlc", "off"]
+
+
+class ImageEngineError(Exception):
+    """本地 Image Engine DLC 错误。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 
 class ImageProvider(Protocol):
@@ -46,14 +54,38 @@ class JimengProvider:
         )
 
 
-_default_provider: JimengProvider | None = None
+def resolve_image_backend(user: User | None = None) -> ImageBackend:
+    if user and (user.image_backend or "").strip():
+        backend = user.image_backend.strip().lower()
+        if backend in ("jimeng", "local_dlc", "off"):
+            return backend  # type: ignore[return-value]
+    return "jimeng"
 
 
-def get_image_provider() -> JimengProvider:
-    global _default_provider
-    if _default_provider is None:
-        _default_provider = JimengProvider()
-    return _default_provider
+def has_local_dlc(user: User | None = None) -> bool:
+    if resolve_image_backend(user) != "local_dlc":
+        return False
+    if not user:
+        return False
+    return user.local_dlc_eula_accepted_at is not None
+
+
+def has_image_generation(user: User | None = None) -> bool:
+    backend = resolve_image_backend(user)
+    if backend == "off":
+        return False
+    if backend == "local_dlc":
+        return has_local_dlc(user)
+    return has_jimeng_key(user)
+
+
+def get_image_provider(user: User | None = None, *, kind: ImageKind = "illustration") -> ImageProvider:
+    backend = resolve_image_backend(user)
+    if backend == "local_dlc":
+        from app.services.image_providers.local_dlc import LocalDlcProvider
+
+        return LocalDlcProvider(user, kind=kind)
+    return JimengProvider()
 
 
 def category_for_kind(kind: ImageKind) -> str:
@@ -69,7 +101,13 @@ def media_url(object_key: str) -> str:
     return f"/api/v1/media/{object_key}"
 
 
-def size_for_kind(kind: ImageKind) -> str | None:
+def size_for_kind(kind: ImageKind, user: User | None = None) -> str | None:
+    backend = resolve_image_backend(user)
+    if backend == "local_dlc":
+        from app.services.image_providers.local_dlc import _KIND_DIMENSIONS
+
+        w, h = _KIND_DIMENSIONS.get(kind, (768, 432))
+        return f"{w}x{h}"
     if kind == "character":
         return settings.jimeng_character_size
     return None
@@ -85,19 +123,20 @@ async def generate_and_store(
     provider: ImageProvider | None = None,
 ) -> tuple[str, bytes]:
     """调用 provider 生成图片并写入 storage，返回 (object_key, bytes)。"""
-    prov = provider or get_image_provider()
+    prov = provider or get_image_provider(user, kind=kind)
     refs: list[bytes] = []
     if reference_keys:
         for key in reference_keys[:14]:
             data = storage.get_bytes(key)
             if not data:
-                raise JimengError(f"参考图不存在或无法读取：{key}")
+                err_cls = ImageEngineError if resolve_image_backend(user) == "local_dlc" else JimengError
+                raise err_cls(f"参考图不存在或无法读取：{key}")
             refs.append(data)
     image_bytes = await prov.generate(
         user,
         prompt,
         reference_images=refs or None,
-        size=size_for_kind(kind),
+        size=size_for_kind(kind, user),
     )
     object_key = new_object_key(book_id, kind)
     storage.put_bytes(object_key, image_bytes, content_type="image/png")
