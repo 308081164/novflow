@@ -1,6 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
-import { BookOpen, LogOut, PenLine, Sparkles } from 'lucide-react'
+import { BookOpen, LogOut } from 'lucide-react'
 import { useAuth } from '../auth'
+import BrandMark from './BrandMark'
+import LicenseNotice from './LicenseNotice'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
@@ -12,8 +14,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur">
         <div className={`flex items-center justify-between px-4 py-3 ${isWritePage ? 'w-full' : 'mx-auto max-w-7xl'}`}>
           <Link to="/dashboard" className="flex items-center gap-2 font-semibold text-brand-900">
-            <Sparkles className="h-5 w-5 text-brand-600" />
-            NovFlow
+            <BrandMark className="h-8 w-8 rounded-lg shadow-sm ring-1 ring-slate-200/80" />
+            <span>NovFlow</span>
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
             <Link to="/dashboard" className={loc.pathname.startsWith('/dashboard') ? 'text-brand-700 font-medium' : 'hover:text-brand-700'}>
@@ -34,6 +36,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+      <LicenseNotice />
       <main className={isWritePage ? 'h-[calc(100vh-57px)] overflow-hidden' : 'mx-auto max-w-7xl px-4 py-6'}>
         {children}
       </main>

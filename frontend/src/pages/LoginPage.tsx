@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import BrandMark from '../components/BrandMark'
 
 export default function LoginPage() {
   const { login, register } = useAuth()
@@ -32,9 +32,11 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-brand-900 via-brand-700 to-slate-900">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-4 py-12 lg:flex-row lg:items-center lg:gap-16">
         <div className="mb-10 text-white lg:mb-0 lg:flex-1">
-          <div className="mb-6 flex items-center gap-3">
-            <Sparkles className="h-10 w-10 text-brand-200" />
-            <span className="text-3xl font-bold tracking-tight">NovFlow</span>
+          <div className="mb-6">
+            <BrandMark
+              variant="logo"
+              className="h-14 w-auto max-w-full rounded-xl shadow-lg ring-1 ring-white/10"
+            />
           </div>
           <h1 className="text-4xl font-bold leading-tight lg:text-5xl">
             小说 AI 写作台

@@ -1,12 +1,13 @@
-# NovFlow Windows desktop installer staging build
-# Output: dist/novflow-installer-stage/ (ready for Inno Setup)
+﻿# NovFlow Windows desktop installer staging build
+# Output: dist/novflow-installer-stage/ (Electron shell + Python sidecar)
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
 Set-Location $Root
 
 $Stage = Join-Path $Root "dist\novflow-installer-stage"
-$BuildDir = Join-Path $Root "desktop\build"
+$ElectronBuild = Join-Path $Root "dist\electron-build"
+$ElectronDir = Join-Path $Root "desktop\electron"
 
 function Resolve-BuildPython {
     $candidates = @(
@@ -48,10 +49,45 @@ function Get-VenvTool {
     return $null
 }
 
+function Invoke-PipInstall {
+    param(
+        [string]$PipExe,
+        [string]$PythonExe,
+        [Parameter(Mandatory = $true)][string[]]$InstallArgs,
+        [string]$Label = "pip install"
+    )
+    if (-not $PipExe -and -not $PythonExe) {
+        throw "Invoke-PipInstall requires PipExe or PythonExe"
+    }
+    $mirrors = @(
+        @{ Index = $null; TrustedHost = $null; Name = "PyPI (default)" },
+        @{ Index = "https://pypi.tuna.tsinghua.edu.cn/simple"; TrustedHost = "pypi.tuna.tsinghua.edu.cn"; Name = "Tsinghua mirror" },
+        @{ Index = "https://mirrors.aliyun.com/pypi/simple/"; TrustedHost = "mirrors.aliyun.com"; Name = "Aliyun mirror" }
+    )
+    $lastError = $null
+    foreach ($mirror in $mirrors) {
+        $pipArgs = @("install", "--default-timeout", "300")
+        if ($mirror.Index) {
+            $pipArgs += @("--index-url", $mirror.Index, "--trusted-host", $mirror.TrustedHost)
+        }
+        $pipArgs += $InstallArgs
+        Write-Host "    $Label via $($mirror.Name)..."
+        if ($PipExe) {
+            & $PipExe @pipArgs
+        } else {
+            & $PythonExe -m pip @pipArgs
+        }
+        if ($LASTEXITCODE -eq 0) { return }
+        $lastError = "exit code $LASTEXITCODE"
+        Write-Host "    $Label failed on $($mirror.Name), trying next source..." -ForegroundColor Yellow
+    }
+    throw "$Label failed after PyPI and mirror retries ($lastError)"
+}
+
 function Stop-StageLockingProcesses {
     param([string]$StagePath)
     $needle = "novflow-installer-stage"
-    foreach ($name in @("python.exe", "pip.exe", "pyinstaller.exe", "uvicorn.exe")) {
+    foreach ($name in @("python.exe", "pip.exe", "uvicorn.exe", "NovFlow.exe")) {
         Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction SilentlyContinue | ForEach-Object {
             $cmd = $_.CommandLine
             $exe = $_.ExecutablePath
@@ -95,7 +131,7 @@ if (-not (Test-Path "node_modules")) {
 npm run build
 Set-Location $Root
 
-Write-Host "==> Preparing staging directory"
+Write-Host "==> Preparing staging directory (Python sidecar)"
 Remove-DirectorySafe $Stage
 New-Item -ItemType Directory -Path $Stage | Out-Null
 
@@ -104,15 +140,17 @@ $Runtime = Join-Path $Stage "runtime"
 & $BuildPython -m venv $Runtime --copies
 $VenvPython = Get-VenvPython $Runtime
 Write-Host "    venv python: $VenvPython"
-& $VenvPython -m pip install --upgrade pip -q
+Invoke-PipInstall -PythonExe $VenvPython -Label "upgrade pip" -InstallArgs @("--upgrade", "pip", "-q")
 $VenvPip = Get-VenvTool $Runtime "pip.exe"
 if (-not $VenvPip) { $VenvPip = Get-VenvTool $Runtime "pip3.exe" }
 if (-not $VenvPip) { throw "pip not found in venv" }
-& $VenvPip install --no-cache-dir -r (Join-Path $Root "backend\requirements.txt") pyinstaller pywebview -q
+$ReqFile = Join-Path $Root "backend\requirements.txt"
+Invoke-PipInstall -PipExe $VenvPip -Label "install requirements" -InstallArgs @("--no-cache-dir", "-r", $ReqFile)
+Invoke-PipInstall -PipExe $VenvPip -Label "install tkinter deps" -InstallArgs @("--no-cache-dir", "cryptography", "-q")
 $handlersDir = Join-Path $Runtime "Lib\site-packages\passlib\handlers"
 if (-not (Test-Path $handlersDir)) {
     Write-Host "    passlib incomplete, reinstalling..."
-    & $VenvPip install --force-reinstall --no-cache-dir "passlib[bcrypt]" "bcrypt>=4.0.1,<4.1" -q
+    Invoke-PipInstall -PipExe $VenvPip -Label "reinstall passlib/bcrypt" -InstallArgs @("--force-reinstall", "--no-cache-dir", "passlib[bcrypt]", "bcrypt>=4.0.1,<4.1", "-q")
 }
 if (-not (Test-Path $handlersDir)) {
     throw "passlib.handlers still missing - cannot build desktop runtime"
@@ -144,42 +182,100 @@ if (-not (Test-Path $assetsDir)) {
     throw "frontend/dist/assets missing after copy - build frontend first"
 }
 
-Write-Host "==> Verifying frontend assets"
-if (-not (Test-Path $assetsDir)) {
-    throw "frontend/dist/assets missing after copy - build frontend first"
+Write-Host "==> Copying desktop Python scripts"
+$DesktopDest = Join-Path $Stage "desktop"
+New-Item -ItemType Directory -Path $DesktopDest -Force | Out-Null
+foreach ($script in @("backend_launcher.py", "license_gate.py", "license_dialog.py")) {
+    Copy-Item (Join-Path $Root "desktop\$script") (Join-Path $DesktopDest $script) -Force
 }
 
-Write-Host "==> Building NovFlow.exe launcher"
-Remove-DirectorySafe $BuildDir
-New-Item -ItemType Directory -Path $BuildDir | Out-Null
+Write-Host "==> Syncing brand icons for Electron / installer"
+$BrandIco = Join-Path $Root "assets\brand\icon.ico"
+$BrandPng = Join-Path $Root "assets\brand\icon.png"
+foreach ($required in @($BrandIco, $BrandPng)) {
+    if (-not (Test-Path -LiteralPath $required)) {
+        throw "Brand icon missing: $required"
+    }
+}
+# electron-builder resolves win.icon from buildResources (build/) and project dir.
+$ElectronBuildRes = Join-Path $ElectronDir "build"
+New-Item -ItemType Directory -Force -Path $ElectronBuildRes | Out-Null
+Copy-Item -LiteralPath $BrandIco -Destination (Join-Path $ElectronBuildRes "icon.ico") -Force
+Copy-Item -LiteralPath $BrandPng -Destination (Join-Path $ElectronBuildRes "icon.png") -Force
+Copy-Item -LiteralPath $BrandIco -Destination (Join-Path $ElectronDir "icon.ico") -Force
+Copy-Item -LiteralPath $BrandPng -Destination (Join-Path $ElectronDir "icon.png") -Force
 
-$Launcher = Join-Path $Root "desktop\launcher.py"
-$LicenseDialog = Join-Path $Root "desktop\license_dialog.py"
-$PyInstaller = Get-VenvTool $Runtime "pyinstaller.exe"
-if (-not $PyInstaller) { throw "pyinstaller.exe not found in venv" }
-& $PyInstaller `
-    --noconfirm `
-    --onefile `
-    --noconsole `
-    --name NovFlow `
-    --paths $Root `
-    --paths (Join-Path $Root "desktop") `
-    --hidden-import=webview `
-    --hidden-import=shared.license `
-    --hidden-import=shared.license.license_common `
-    --hidden-import=shared.license.license_service `
-    --hidden-import=shared.license.hardware_id `
-    --hidden-import=shared.license.products `
-    --hidden-import=shared.license.license_keys `
-    --hidden-import=license_dialog `
-    --hidden-import=cryptography `
-    --distpath $Stage `
-    --workpath $BuildDir `
-    --specpath $BuildDir `
-    $Launcher $LicenseDialog
+# Use ASCII-only temp path for rcedit (non-ASCII project paths can break icon embed).
+$IconTempDir = Join-Path $env:TEMP "novflow-build-icons"
+New-Item -ItemType Directory -Force -Path $IconTempDir | Out-Null
+$IconTempIco = Join-Path $IconTempDir "icon.ico"
+Copy-Item -LiteralPath $BrandIco -Destination $IconTempIco -Force
+
+Write-Host "==> Building Electron shell"
+Remove-DirectorySafe $ElectronBuild
+Set-Location $ElectronDir
+if (-not (Test-Path "node_modules")) {
+    npm install
+}
+npm run dist
+if ($LASTEXITCODE -ne 0) { throw "electron-builder failed" }
+Set-Location $Root
+
+$ElectronUnpacked = Join-Path $ElectronBuild "win-unpacked"
+$UnpackedExe = Join-Path $ElectronUnpacked "NovFlow.exe"
+if (-not (Test-Path -LiteralPath $UnpackedExe)) {
+    throw "Electron build did not produce NovFlow.exe in win-unpacked"
+}
+
+# Force-embed brand icon via rcedit on ASCII-only temp paths (non-ASCII project
+# paths can leave the default Electron atom icon in the PE resource).
+Write-Host "==> Embedding brand icon into NovFlow.exe"
+$Rcedit = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "electron-builder\Cache\winCodeSign") -Recurse -Filter "rcedit-x64.exe" -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $Rcedit) {
+    throw "rcedit-x64.exe not found under %LOCALAPPDATA%\electron-builder\Cache\winCodeSign (run electron-builder once to download it)"
+}
+$ExeTemp = Join-Path $IconTempDir "NovFlow.exe"
+Copy-Item -LiteralPath $UnpackedExe -Destination $ExeTemp -Force
+& $Rcedit $ExeTemp --set-icon $IconTempIco
+if ($LASTEXITCODE -ne 0) { throw "rcedit failed to set NovFlow.exe icon" }
+Copy-Item -LiteralPath $ExeTemp -Destination $UnpackedExe -Force
+
+# Loose icons next to exe (Inno shortcuts) and under resources (BrowserWindow).
+Copy-Item -LiteralPath $BrandIco -Destination (Join-Path $ElectronUnpacked "icon.ico") -Force
+Copy-Item -LiteralPath $BrandPng -Destination (Join-Path $ElectronUnpacked "icon.png") -Force
+$UnpackedResources = Join-Path $ElectronUnpacked "resources"
+Copy-Item -LiteralPath $BrandIco -Destination (Join-Path $UnpackedResources "icon.ico") -Force
+Copy-Item -LiteralPath $BrandPng -Destination (Join-Path $UnpackedResources "icon.png") -Force
+
+Write-Host "==> Merging Electron output into staging"
+Get-ChildItem -LiteralPath $ElectronUnpacked | ForEach-Object {
+    $dest = Join-Path $Stage $_.Name
+    if (Test-Path -LiteralPath $dest) {
+        Remove-Item -LiteralPath $dest -Recurse -Force
+    }
+    Copy-Item -LiteralPath $_.FullName -Destination $Stage -Recurse -Force
+}
+
+# Sidecar lives under resources/novflow; remove duplicate top-level copies from staging prep.
+foreach ($name in @("runtime", "backend", "frontend", "shared", "desktop")) {
+    $dup = Join-Path $Stage $name
+    if (Test-Path -LiteralPath $dup) {
+        Remove-Item -LiteralPath $dup -Recurse -Force
+    }
+}
 
 if (-not (Test-Path (Join-Path $Stage "NovFlow.exe"))) {
-    throw "PyInstaller did not produce NovFlow.exe"
+    throw "NovFlow.exe missing after Electron merge"
+}
+if (-not (Test-Path (Join-Path $Stage "icon.ico"))) {
+    throw "icon.ico missing at install root - shortcuts would fall back to wrong icon"
+}
+if (-not (Test-Path (Join-Path $Stage "resources\icon.ico"))) {
+    throw "resources\icon.ico missing - BrowserWindow taskbar icon would be wrong"
+}
+if (-not (Test-Path (Join-Path $Stage "resources\novflow\runtime\Scripts\python.exe"))) {
+    throw "resources/novflow runtime missing - extraResources packaging failed"
 }
 
 Write-Host ""

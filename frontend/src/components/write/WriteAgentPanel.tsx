@@ -27,6 +27,7 @@ type Props = {
     draftBefore?: string,
   ) => void;
   onBookUpdated?: () => void;
+  onError?: (error: unknown) => void;
   configured: boolean;
 };
 
@@ -74,7 +75,7 @@ function assistantFromResponse(
 }
 
 export default forwardRef<WriteAgentPanelHandle, Props>(function WriteAgentPanel(
-  { bookId, chapterNo, draftContent, onApplied, onBookUpdated, configured },
+  { bookId, chapterNo, draftContent, onApplied, onBookUpdated, onError, configured },
   ref,
 ) {
   const [messages, setMessages] = useState<WriteAgentChatMsg[]>([]);
@@ -389,14 +390,19 @@ export default forwardRef<WriteAgentPanelHandle, Props>(function WriteAgentPanel
         setContextStatus(res.context_status);
       }
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err_${Date.now()}`,
-          role: "assistant",
-          content: e instanceof Error ? e.message : "请求失败，请重试",
-        },
-      ]);
+      setMessages((prev) => prev.filter((m) => !String(m.id).startsWith("stream_")));
+      if (onError) {
+        onError(e);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err_${Date.now()}`,
+            role: "assistant",
+            content: e instanceof Error ? e.message : "请求失败，请重试",
+          },
+        ]);
+      }
     } finally {
       setSending(false);
     }

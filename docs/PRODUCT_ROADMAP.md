@@ -9,20 +9,20 @@
 
 ### 1. 桌面壳（换壳）
 
-**决策：** v1 从「系统浏览器 + 隐藏 uvicorn」升级为 **嵌入式 WebView**，FastAPI 仍作为 localhost sidecar。
+**决策：** v1 使用 **Electron 嵌入式窗口** + FastAPI localhost sidecar（不再使用 pywebview / 系统浏览器回退）。
 
 | 项 | v1（当前） | 未来选项 |
 |----|-----------|----------|
-| 壳 | **pywebview**（Windows WebView2） | Electron / Tauri |
+| 壳 | **Electron**（Chromium 嵌入） | Tauri |
 | 后端 | 捆绑 Python + uvicorn @ 127.0.0.1 | 不变 |
-| 打包 | 增强现有 PyInstaller launcher | 独立原生壳 |
-| 回退 | pywebview 不可用时打开系统浏览器 | — |
+| 打包 | electron-builder + Inno Setup | 自动更新通道 |
+| 回退 | 无浏览器回退；启动即显示加载窗口 | — |
 
 **阶段与估算：**
 
 | 阶段 | 内容 | 人日 |
 |------|------|------|
-| P0 ✅ | pywebview 窗口、1280×800、单实例 mutex | 2–3 |
+| P0 ✅ | Electron 窗口、1280×800、单实例、加载屏 | 2–3 |
 | P1 | 系统托盘、开机自启 | 3–5 |
 | P2 | 首次运行向导（Key / 数据目录） | 2–3 |
 | P3 | 自动更新通道 | 5–8 |
@@ -106,7 +106,7 @@ P2 按书 sync 或 .novflow.zip 备份（二选一 MVP）
 P3 完整 sync + DLC 正式引擎分包
 ```
 
-**总估算（完整愿景）：** 90–135 人日（与 HYBRID_ARCHITECTURE 一致；桌面壳方案改为 pywebview 后 P0 略减）
+**总估算（完整愿景）：** 90–135 人日（与 HYBRID_ARCHITECTURE 一致；桌面壳已采用 Electron v1）
 
 ---
 

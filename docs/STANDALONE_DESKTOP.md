@@ -18,7 +18,7 @@
 | 零电脑知识 | **不能** | 需懂「双击安装、打开浏览器、粘贴 Key」 |
 | 零配置 | **不能** | 至少一次 DeepSeek Key + 联网 |
 
-**务实定义：**「奶奶级」= 双击桌面图标 → **嵌入式窗口**（pywebview / WebView2）自动打开 → 注册/登录 → 设置里粘贴 Key → 开始写书。pywebview 不可用时回退系统浏览器。不需要装 Python、Node、Docker，不需要编辑 `.env`，不需要看黑窗口终端。
+**务实定义：**「奶奶级」= 双击桌面图标 → **Electron 嵌入式窗口**自动打开 → 注册/登录 → 设置里粘贴 Key → 开始写书。不使用系统浏览器。不需要装 Python、Node、Docker，不需要编辑 `.env`，不需要看黑窗口终端。
 
 ---
 
@@ -55,7 +55,7 @@
 |------|------|
 | 捆绑 Python 运行时 | PyInstaller / Nuitka / embedded Python sidecar |
 | 预编译前端 | 安装包内带 `frontend/dist`，不能在用户机器上 `npm install` |
-| 无终端自启后端 | 启动器隐藏启动 uvicorn，**pywebview 嵌入窗口**（回退浏览器） |
+| 无终端自启后端 | Electron 壳隐藏启动 uvicorn，嵌入式 BrowserWindow |
 | SQLite + 本地文件 | 默认 `USE_MINIO=false`；**图片需补本地 filesystem 存储** |
 | 首次运行向导 | 欢迎页 → 数据目录 → 粘贴 Key |
 | Windows 安装器 | Inno Setup / NSIS / WiX |
@@ -74,7 +74,7 @@
 |-----------|------|
 | `start.ps1` | 依赖系统 `python`、`npm`；每次 build；前台 uvicorn；不自动开浏览器 |
 | `start.bat` | 与 README 不一致：dev 双窗口、演示账号文案不同 |
-| 无安装包脚本 | ~~没有任何 Inno Setup / Tauri / Electron 打包~~ → **已有** PyInstaller + Inno Setup（见 `desktop/build.ps1`） |
+| 无安装包脚本 | ~~没有任何 Inno Setup / Tauri / Electron 打包~~ → **已有** Electron + Inno Setup（见 `desktop/build.ps1`） |
 
 ### 功能在桌面模式的硬缺口
 
@@ -148,9 +148,9 @@
 
 | 方案 | 人天 | 说明 |
 |------|------|------|
-| **pywebview + sidecar Python（v1 ✅）** | 2–3（壳）+ 打包 | 当前实现；WebView2 |
+| **Electron + sidecar Python（v1 ✅）** | 2–3（壳）+ 打包 | 当前实现；嵌入式 Chromium 窗口 |
 | **Tauri + sidecar Python** | 12–18 | 后续可选 |
-| **Electron + 内嵌 uvicorn** | 15–22 | 包体积大，v1 不做 |
+| **pywebview + sidecar Python** | — | 已弃用（无 UI 响应问题） |
 | **纯离线前端重写** | 45–70 | 不推荐；等于 fork 后端 |
 
 ---

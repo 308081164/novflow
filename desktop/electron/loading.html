@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>NovFlow</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      background: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .logo {
+      height: 72px;
+      width: auto;
+      max-width: min(360px, 86vw);
+      margin-bottom: 28px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(148, 163, 184, 0.3);
+      border-top-color: #22d3ee;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status { font-size: 14px; color: #94a3b8; text-align: center; padding: 0 24px; line-height: 1.5; }
+    .status.error { color: #f87171; }
+  </style>
+</head>
+<body>
+  <img class="logo" src="logo.png" alt="NovFlow" draggable="false" />
+  <div class="spinner" aria-hidden="true"></div>
+  <p class="status" id="status">正在启动，请稍候…</p>
+  <script>
+    window.__setStatus = function (text) {
+      var el = document.getElementById("status");
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle("error", String(text).indexOf("超时") >= 0 || String(text).indexOf("失败") >= 0);
+    };
+  </script>
+</body>
+</html>

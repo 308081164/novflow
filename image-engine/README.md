@@ -1,6 +1,8 @@
-# NovFlow Image Engine（Stub）
+# NovFlow 本地生图引擎（Stub）
 
 开发/集成测试用占位引擎，**不含** diffusers / torch。未安装真实模型时返回彩色占位 PNG。
+
+产品标识与 NovFlow 主程序分离：安装包显示名、开始菜单文件夹、默认目录均为「NovFlow 本地生图引擎」/ `NovFlowImageEngine`，不与主程序共用。
 
 ## 启动
 

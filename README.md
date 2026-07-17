@@ -18,7 +18,7 @@
 |------|--------|--------------|----------|
 | 本地开发 | SQLite | DB TEXT 列 | `start.ps1` / `start-backend.ps1` |
 | Docker 部署 | PostgreSQL | MinIO 对象存储 | `docker compose up -d` |
-| **Windows 离线版** | SQLite（`%LocalAppData%\NovFlow\`） | 本地文件 + DB | 双击 `NovFlow.exe`（pywebview 嵌入窗口） |
+| **Windows 离线版** | SQLite（`%LocalAppData%\NovFlow\`） | 本地文件 + DB | 双击 `NovFlow.exe`（Electron 嵌入窗口） |
 
 - 元数据（书名、字数、状态、标题等）始终存在数据库
 - MinIO 存储章节 Markdown 正文（`{book_id}/{chapter_no}.md`）与生成图片
@@ -171,6 +171,7 @@ docker compose up -d --build    # 构建 + 启动（一条命令）
 ### 版本号与安装行为
 
 - 修改安装包版本：编辑 `installer/novflow.iss` 中的 `#define MyAppVersion`
+- 安装向导语言：简体中文（默认）+ English（`LanguageDetectionMethod=uilanguage`，语言文件在 `installer/languages/`）
 - 用户数据目录：`%LocalAppData%\NovFlow\`（覆盖安装**不会**删除已有书籍）
 - 启动后浏览器自动打开；需在设置页粘贴 DeepSeek API Key 后使用 AI 功能
 

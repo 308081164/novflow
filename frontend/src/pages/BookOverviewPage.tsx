@@ -60,20 +60,35 @@ export default function BookOverviewPage() {
   const [coverLightbox, setCoverLightbox] = useState(false);
   const [showCoverRefine, setShowCoverRefine] = useState(false);
   const [chapterFilter, setChapterFilter] = useState<ChapterFilter>("all");
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([api.book(id), api.chapters(id), api.getCover(id)]).then(([b, c, cover]) => {
-      setBook(b);
-      setChapters(c);
-      if (cover.url) {
-        setCoverImage({ url: cover.url, object_key: cover.object_key, kind: "cover" });
-      } else if (b.cover_image_url) {
-        setCoverImage({ url: b.cover_image_url, kind: "cover" });
-      } else {
-        setCoverImage(null);
-      }
-    });
+    let cancelled = false;
+    setLoadError("");
+    Promise.all([
+      api.book(id),
+      api.chapters(id),
+      api.getCover(id).catch(() => ({ url: "", object_key: "" })),
+    ])
+      .then(([b, c, cover]) => {
+        if (cancelled) return;
+        setBook(b);
+        setChapters(c);
+        if (cover.url) {
+          setCoverImage({ url: cover.url, object_key: cover.object_key, kind: "cover" });
+        } else if (b.cover_image_url) {
+          setCoverImage({ url: b.cover_image_url, kind: "cover" });
+        } else {
+          setCoverImage(null);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : "加载书籍失败");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const plannedTotal = book?.planned_chapters || book?.target_chapters || book?.chapter_count || 0;
@@ -152,6 +167,17 @@ export default function BookOverviewPage() {
       setExportingPackage(false);
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm text-red-600">{loadError}</p>
+        <Link to="/dashboard" className="btn-secondary inline-flex">
+          返回书库
+        </Link>
+      </div>
+    );
+  }
 
   if (!book) {
     return (

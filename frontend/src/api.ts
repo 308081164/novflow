@@ -210,6 +210,27 @@ export type ImageEngineStatus = {
   message: string;
 };
 
+export type LicenseStatus = {
+  desktop_mode: boolean;
+  activated: boolean;
+  error?: string;
+  hw_id?: string;
+  short_hw_id?: string;
+  product_id?: string;
+  product_name?: string;
+  license_mode?: string;
+  valid_until?: string;
+  note?: string;
+};
+
+export type LicenseDeviceInfo = {
+  hw_id: string;
+  short_hw_id: string;
+  device_code: string;
+  product_id: string;
+  product_name: string;
+};
+
 export type GeneratedImage = {
   id?: number;
   url: string;
@@ -303,19 +324,66 @@ function headers(): HeadersInit {
   };
 }
 
-/** 带 JWT 鉴权的 fetch；流式/SSE 请求须走此入口，不可裸调 fetch。 */
-async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(API + path, { ...init, headers: { ...headers(), ...init?.headers } });
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  detail?: unknown;
+
+  constructor(status: number, message: string, code?: string, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+export function isLicenseError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (error.code === "license_expired" || error.code === "license_required")
+  );
+}
+
+export function isLicenseExpired(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "license_expired";
+}
+
+async function parseResponseError(res: Response): Promise<ApiError> {
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return new ApiError(res.status, text || res.statusText);
+  }
+  const detail = (parsed as { detail?: unknown }).detail;
+  if (typeof detail === "string") {
+    return new ApiError(res.status, detail);
+  }
+  if (detail && typeof detail === "object") {
+    const d = detail as { error?: string; message?: string };
+    return new ApiError(res.status, d.message || JSON.stringify(detail), d.error, detail);
+  }
+  return new ApiError(res.status, text || res.statusText);
+}
+
+async function ensureOkResponse(res: Response): Promise<Response> {
   if (res.status === 401) {
     clearToken();
     window.location.href = "/login";
-    throw new Error("未登录");
+    throw new ApiError(401, "未登录");
   }
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    throw await parseResponseError(res);
   }
   return res;
+}
+
+/** 带 JWT 鉴权的 fetch；流式/SSE 请求须走此入口，不可裸调 fetch。 */
+async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(API + path, { ...init, headers: { ...headers(), ...init?.headers } });
+  return ensureOkResponse(res);
 }
 
 async function consumeSseResponse<T>(
@@ -385,16 +453,7 @@ async function consumeSseResponse<T>(
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(API + path, { ...init, headers: { ...headers(), ...init?.headers } });
-  if (res.status === 401) {
-    clearToken();
-    window.location.href = "/login";
-    throw new Error("未登录");
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    const detail = err.detail;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
+  await ensureOkResponse(res);
   if (res.headers.get("content-type")?.includes("text/plain")) {
     return (await res.text()) as T;
   }
@@ -448,6 +507,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ accepted: true }),
     }),
+
+  getLicenseStatus: () => req<LicenseStatus>("/license/status"),
+  getLicenseDevice: () => req<LicenseDeviceInfo>("/license/device"),
+  activateLicense: (license_code: string) =>
+    req<{ ok: boolean; license_mode?: string }>("/license/activate", {
+      method: "POST",
+      body: JSON.stringify({ license_code }),
+    }),
+  deactivateLicense: () => req<{ ok: boolean }>("/license/deactivate", { method: "POST" }),
 
   testJimeng: (data?: { api_key?: string; base_url?: string; model?: string }) =>
     req<{ status: string; message: string; model?: string; requested_model?: string }>(
@@ -921,24 +989,30 @@ export function streamJob(
   bookId: number,
   jobId: number,
   onToken: (t: string) => void,
-  onDone: (status: string, error?: string) => void,
+  onDone: (status: string, error?: unknown) => void,
 ): () => void {
   let cancelled = false;
+  const startedAt = Date.now();
+  const maxWaitMs = 15 * 60 * 1000;
   const poll = async () => {
     while (!cancelled) {
+      if (Date.now() - startedAt > maxWaitMs) {
+        onDone("failed", new ApiError(408, "生成任务超时，请稍后重试"));
+        return;
+      }
       try {
         const j = await api.job(bookId, jobId);
-        if (j.status === "done") {
+        if (j.status === "done" || j.status === "completed") {
           if (j.result_content) onToken(j.result_content);
           onDone("completed");
           return;
         }
         if (j.status === "failed") {
-          onDone("failed", j.error);
+          onDone("failed", new ApiError(500, j.error || "生成失败"));
           return;
         }
       } catch (e) {
-        onDone("failed", String(e));
+        onDone("failed", e);
         return;
       }
       await new Promise((r) => setTimeout(r, 1500));

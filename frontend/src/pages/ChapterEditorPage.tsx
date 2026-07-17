@@ -12,11 +12,13 @@ import {
   Wrench,
 } from "lucide-react";
 import { api, Chapter, ChapterPlan, GeneratedImage, LintIssue, LintResult, WriteAgentApplied, streamJob } from "../api";
+import AppAlertModal from "../components/AppAlertModal";
 import ChapterOutlinePanel from "../components/write/ChapterOutlinePanel";
 import LintEditor from "../components/write/LintEditor";
 import WriteAgentPanel, { type WriteAgentPanelHandle } from "../components/write/WriteAgentPanel";
 import GeneratedImageGallery from "../components/GeneratedImageGallery";
 import ImageUploadButton from "../components/ImageUploadButton";
+import { closedErrorModal, errorModalFromUnknown, type ErrorModalState } from "../utils/errorModal";
 import {
   applyAllHunkDecision,
   applyHunkDecision,
@@ -42,6 +44,7 @@ export default function ChapterEditorPage() {
   const [generating, setGenerating] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [message, setMessage] = useState("");
+  const [errorModal, setErrorModal] = useState<ErrorModalState>(closedErrorModal);
   const [saving, setSaving] = useState(false);
   const [chapterDiffs, setChapterDiffs] = useState<Map<number, ChapterDiffState>>(() => new Map());
   const [toolboxOpen, setToolboxOpen] = useState(false);
@@ -147,6 +150,10 @@ export default function ChapterEditorPage() {
     });
   };
 
+  const showErrorModal = (error: unknown, fallbackTitle = "操作失败") => {
+    setErrorModal(errorModalFromUnknown(error, fallbackTitle));
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -156,7 +163,7 @@ export default function ChapterEditorPage() {
       clearDiffForChapter(no);
       setMessage("已保存");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "保存失败");
+      showErrorModal(e, "保存失败");
     } finally {
       setSaving(false);
     }
@@ -175,7 +182,7 @@ export default function ChapterEditorPage() {
             setStreamText("");
             resolve();
           } else {
-            reject(new Error(error || "生成失败"));
+            reject(error ?? new Error("生成失败"));
           }
         },
       );
@@ -184,14 +191,16 @@ export default function ChapterEditorPage() {
   const generate = async () => {
     setGenerating(true);
     setMessage("");
+    cancelStream.current?.();
     try {
       const job = await api.generate(id, no, "");
       await waitJob(job.id);
       setMessage("章节生成完成");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "生成失败");
+      showErrorModal(e, "生成失败");
     } finally {
       setGenerating(false);
+      cancelStream.current = null;
     }
   };
 
@@ -199,14 +208,16 @@ export default function ChapterEditorPage() {
     setToolboxOpen(false);
     setGenerating(true);
     setMessage("");
+    cancelStream.current?.();
     try {
       const job = await api.expand(id, no, 500, "");
       await waitJob(job.id);
       setMessage("扩写完成");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "扩写失败");
+      showErrorModal(e, "扩写失败");
     } finally {
       setGenerating(false);
+      cancelStream.current = null;
     }
   };
 
@@ -238,7 +249,7 @@ export default function ChapterEditorPage() {
         setMessage("未检测到可自动修复项");
       }
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "修复失败");
+      showErrorModal(e, "修复失败");
     } finally {
       setGenerating(false);
     }
@@ -252,7 +263,7 @@ export default function ChapterEditorPage() {
         setLint(res.lint);
         setMessage(`已修复：${issue.rule_id}`);
       } catch (e) {
-        setMessage(e instanceof Error ? e.message : "修复失败");
+        showErrorModal(e, "修复失败");
       }
       return;
     }
@@ -272,6 +283,7 @@ export default function ChapterEditorPage() {
     if (!content.trim()) return;
     setGenerating(true);
     setMessage("");
+    cancelStream.current?.();
     try {
       await save();
       const job = await api.fixAi(id, no);
@@ -279,9 +291,10 @@ export default function ChapterEditorPage() {
       await load();
       setMessage("AI 规约修复完成");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "AI 修复失败");
+      showErrorModal(e, "AI 修复失败");
     } finally {
       setGenerating(false);
+      cancelStream.current = null;
     }
   };
 
@@ -292,7 +305,7 @@ export default function ChapterEditorPage() {
       await load();
       setMessage("章节已批准");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "批准失败");
+      showErrorModal(e, "定稿失败");
     }
   };
 
@@ -384,7 +397,7 @@ export default function ChapterEditorPage() {
       setIllustrations((prev) => [...prev, img]);
       setMessage("章节插图已生成");
     } catch (e) {
-      setMessage(String(e));
+      showErrorModal(e, "插图生成失败");
     } finally {
       setGeneratingIll(false);
     }
@@ -639,7 +652,16 @@ export default function ChapterEditorPage() {
         draftContent={content}
         onApplied={handleAgentApplied}
         onBookUpdated={load}
+        onError={(error) => showErrorModal(error, "智能体请求失败")}
         configured={!!user?.deepseek_configured}
+      />
+
+      <AppAlertModal
+        open={errorModal.open}
+        title={errorModal.title}
+        message={errorModal.message}
+        settingsLink={errorModal.settingsLink}
+        onClose={() => setErrorModal(closedErrorModal)}
       />
     </div>
   );

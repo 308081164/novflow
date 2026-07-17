@@ -7,7 +7,7 @@ NovFlow 使用与降 AIGC 工具相同的 **离线 Ed25519 签名**机制，仅 
 | 产品 | `product_id` | `layout` | 本地许可文件 |
 |------|--------------|----------|--------------|
 | NovFlow Desktop | `novflow_desktop` | `1` | `%LocalAppData%\NovFlow\data\config\novflow-desktop-license.json` |
-| Image Engine DLC | `novflow_image_dlc` | `1` | `%LocalAppData%\NovFlow\data\config\novflow-image-dlc-license.json` |
+| NovFlow 本地生图引擎 | `novflow_image_dlc` | `1` | `%LocalAppData%\NovFlow\data\config\novflow-image-dlc-license.json` |
 
 Desktop 激活码 **不能** 解锁 DLC，反之亦然（payload 中 `product_id` 校验）。
 
@@ -27,14 +27,30 @@ v1.<base64url(compact_json)>.<base64url(ed25519_signature)>
   "license_mode": "permanent|time_limited",
   "tier": "full",
   "issued_at": "YYYY-MM-DD",
-  "activate_before": "...",
-  "valid_until": "...",
+  "activate_before": "YYYY-MM-DD",
+  "valid_until": "YYYY-MM-DD",
   "batch_id": "...",
   "customer_ref": "..."
 }
 ```
 
-JSON 序列化使用紧凑格式：`separators=(",", ":")`，验签对 **原始 JSON 字符串** 做 Ed25519 verify。
+### 授权模式与过期规则
+
+| `license_mode` | 过期字段 | 行为 |
+|----------------|----------|------|
+| `permanent` | 可选 `activate_before` | 仅限制**首次激活**截止日期；激活后永久有效 |
+| `time_limited` | **必填** `valid_until` | 到期日**当天仍有效**，次日 0 点起拒绝激活与 AI 功能 |
+| 任意 | 若 payload 含 `valid_until` | 客户端每次验签后均校验该日期（防止误签） |
+
+**管理员签发限时授权时：**
+
+- CLI：`--mode time_limited --valid-until 2026-12-31`
+- 若仅写 `--valid-until` 未指定 mode，CLI 会自动切换为 `time_limited`
+- Android 管理端：选择「限时」并填写 `YYYY-MM-DD`
+
+**切勿**在 `permanent` 模式下填写有效期——该字段不会写入签名 payload，用户将永久可用。
+
+日期格式统一为 **本地日历日 `YYYY-MM-DD`**（比较使用 `date.today()`，非 UTC 时间戳）。
 
 ## 设备指纹 HW_ID
 
@@ -92,5 +108,6 @@ py -3 tools\generate_license.py verify --product desktop --hw-id <HW_ID> --code 
 
 1. 读取本地许可 JSON
 2. 拒绝 `deactivated: true`
-3. 对存储的 `license_code` 重新验签 + `product_id` + `hw_id` + 日期
-4. 每次启动重新校验（不信任单独布尔 flag）
+3. 对存储的 `license_code` 重新验签 + `product_id` + `hw_id` + **当日日期过期校验**
+4. **每次 API 请求**（`require_desktop_license`）与状态查询均重新校验，不信任缓存布尔值
+5. 到期后 AI 路由返回 403，`error: license_expired`

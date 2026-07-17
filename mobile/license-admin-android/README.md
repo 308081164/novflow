@@ -5,7 +5,7 @@
 **一个 APK** 可为以下两种产品签发激活码（在 UI 中选择产品类型）：
 
 - NovFlow Desktop (`novflow_desktop`)
-- Image Engine DLC (`novflow_image_dlc`)
+- NovFlow 本地生图引擎 (`novflow_image_dlc`)
 
 ## GitHub Actions 构建
 

@@ -31,7 +31,7 @@
 ```mermaid
 flowchart TB
     subgraph Local["本地桌面客户端（模式 1 / 2）"]
-        DesktopShell["pywebview 壳（v1）\nWebView2 · 1280×800"]
+        DesktopShell["Electron 壳（v1）\nChromium · 1280×800"]
         LocalUI["React SPA（复用 frontend）"]
         LocalAPI["嵌入式 FastAPI\nSQLite + 可选 MinIO Lite"]
         SyncAgent["Sync Agent\n按书 pull/push"]
@@ -94,7 +94,7 @@ flowchart TB
 
 | 方案 | 工作量 | 优劣 |
 |------|--------|------|
-| **A. pywebview + sidecar Python（v1）** | 低 | ✅ 当前选型；WebView2 嵌入，失败回退浏览器 |
+| **A. Electron + sidecar Python（v1）** | 低 | ✅ 当前选型；嵌入式窗口，无浏览器回退 |
 | **B. Tauri + sidecar Python** | 中 | 体积小；后续可选升级 |
 | **C. Electron + 内嵌 uvicorn** | 中高 | 生态成熟；包体积大 |
 | **D. 继续「本地 Web」+ 安装器** | 低 | 已超越；v1 已换壳 |
@@ -387,7 +387,7 @@ ALLOW_WITHOUT_MEMBERSHIP = [
 
 | 阶段 | 目标 | 人日 | 交付物 |
 |------|------|------|--------|
-| **P0** | 本地桌面化 | 10–18 | pywebview 安装包、嵌入式 SQLite、自动启动（Electron/Tauri 延后） |
+| **P0** | 本地桌面化 | 10–18 | Electron 安装包、嵌入式 SQLite、自动启动 |
 | **P1** | 云后端多租户基线 | 10–15 | PG 强制、用户体系、MinIO key 重构、media 鉴权 |
 | **P2** | 按书云同步 MVP | 20–30 | cloud_uuid、首次上传、增量 pull/push、冲突 UI（章级） |
 | **P3** | Agent 历史 + 图片同步 | 15–20 | 消息 incremental sync、blob manifest |

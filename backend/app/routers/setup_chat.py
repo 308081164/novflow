@@ -20,6 +20,7 @@ from app.schemas import (
     SetupActionOut,
     BookOut,
 )
+from app.services.image_gen import refresh_meta_images
 from app.services.setup_agent import (
     _book_snapshot,
     _normalize_cards_list,
@@ -65,7 +66,7 @@ def _msg_out(m, book: Book | None = None, db: Session | None = None) -> SetupMes
         content=content,
         cards=cards,
         actions=actions,
-        meta=getattr(m, "meta_json", None) or {},
+        meta=refresh_meta_images(getattr(m, "meta_json", None) or {}),
         created_at=m.created_at,
     )
 

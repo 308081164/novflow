@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, MapPin, Sparkles, Users } from "lucide-react";
 import type { ChapterPlan } from "../../api";
+import { planHasOutlineContent } from "../../utils/planOutline";
 import { Badge } from "../Layout";
 
 type Props = {
@@ -83,7 +84,7 @@ export default function ChapterOutlinePanel({ bookId, chapterNo, plan, chapterLi
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4">
-        {!plan || (!plan.plot_points?.trim() && !plan.title?.trim()) ? (
+        {!plan || !planHasOutlineContent(plan) ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-white p-4 text-center">
             <BookOpen className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-2 text-sm text-slate-600">暂无本章大纲</p>

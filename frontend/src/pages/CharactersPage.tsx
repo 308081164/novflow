@@ -27,8 +27,13 @@ export default function CharactersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const sync = await api.syncBookSettings(id);
-      setSyncInfo(sync);
+      // Sync is best-effort; never block listing Character table rows on sync failure.
+      try {
+        const sync = await api.syncBookSettings(id);
+        setSyncInfo(sync);
+      } catch {
+        setSyncInfo(null);
+      }
       const list = await api.characterCards(id);
       setCards(list);
       const imgMap: Record<number, GeneratedImage[]> = {};

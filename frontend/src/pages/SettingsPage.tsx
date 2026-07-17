@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 import { Link } from "react-router-dom";
 
-import { CheckCircle, HardDrive, Key, Loader2, Save, Sparkles } from "lucide-react";
+import { CheckCircle, HardDrive, Key, Loader2, Save, Shield, Sparkles } from "lucide-react";
 
-import { api, type ImageEngineStatus } from "../api";
+import { api, type ImageEngineStatus, type LicenseStatus } from "../api";
 
 import { PageHeader } from "../components/Layout";
 
@@ -74,6 +74,18 @@ export default function SettingsPage() {
 
   const [saving, setSaving] = useState(false);
 
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
+
+  const [licenseDeviceCode, setLicenseDeviceCode] = useState("");
+
+  const [licenseCode, setLicenseCode] = useState("");
+
+  const [activatingLicense, setActivatingLicense] = useState(false);
+
+  const [licenseMsg, setLicenseMsg] = useState("");
+
+  const [licenseEulaChecked, setLicenseEulaChecked] = useState(false);
+
 
 
   useEffect(() => {
@@ -106,7 +118,88 @@ export default function SettingsPage() {
 
     });
 
+    api.getLicenseStatus().then(async (st) => {
+      setLicenseStatus(st);
+      if (st.desktop_mode && !st.activated) {
+        try {
+          const dev = await api.getLicenseDevice();
+          setLicenseDeviceCode(dev.device_code);
+        } catch {
+          /* ignore */
+        }
+      }
+    }).catch(() => {
+      /* non-desktop or API unavailable */
+    });
+
   }, []);
+
+
+
+  const refreshLicenseStatus = async () => {
+    const st = await api.getLicenseStatus();
+    setLicenseStatus(st);
+    if (st.desktop_mode && !st.activated) {
+      const dev = await api.getLicenseDevice();
+      setLicenseDeviceCode(dev.device_code);
+    }
+  };
+
+
+
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setLicenseMsg(`${label}已复制`);
+    } catch {
+      setLicenseMsg(`复制失败，请手动选择 ${label}`);
+    }
+  };
+
+
+
+  const activateLicense = async () => {
+    const code = licenseCode.trim();
+    if (!code) {
+      setErr("请先粘贴激活码");
+      return;
+    }
+    if (!licenseEulaChecked) {
+      setErr("请先阅读并同意软件许可协议");
+      return;
+    }
+    setActivatingLicense(true);
+    setErr("");
+    setLicenseMsg("");
+    try {
+      await api.activateLicense(code);
+      setLicenseCode("");
+      await refreshLicenseStatus();
+      setLicenseMsg("激活成功，已解锁完整功能");
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setActivatingLicense(false);
+    }
+  };
+
+
+
+  const deactivateLicense = async () => {
+    if (!window.confirm("确定卸载本机授权？")) return;
+    setActivatingLicense(true);
+    setErr("");
+    setLicenseMsg("");
+    try {
+      await api.deactivateLicense();
+      await refreshLicenseStatus();
+      setLicenseMsg("授权已卸载");
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setActivatingLicense(false);
+    }
+  };
 
 
 
@@ -380,6 +473,83 @@ export default function SettingsPage() {
 
 
       <div className="card space-y-5 p-6">
+
+        {licenseStatus?.desktop_mode && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4">
+            <label className="label flex items-center gap-2">
+              <Shield className="h-4 w-4" /> 产品授权
+            </label>
+            {licenseStatus.activated ? (
+              <p className="text-sm text-emerald-700">
+                已激活 — {licenseStatus.product_name || "NovFlow"}
+                {licenseStatus.valid_until
+                  ? `（有效期至 ${licenseStatus.valid_until}）`
+                  : licenseStatus.license_mode
+                    ? `（${licenseStatus.license_mode}）`
+                    : ""}
+              </p>
+            ) : (
+              <p className="text-sm text-amber-800">
+                未激活{licenseStatus.error?.includes("过期") ? "（授权已过期）" : ""} —{" "}
+                {licenseStatus.error || "请完成授权激活"}
+              </p>
+            )}
+            {!licenseStatus.activated && licenseStatus.hw_id && (
+              <div className="mt-3 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-slate-600">设备指纹</span>
+                  <code className="rounded bg-white px-2 py-1 font-mono">{licenseStatus.short_hw_id || licenseStatus.hw_id}</code>
+                  <button type="button" className="btn-secondary text-xs" onClick={() => copyText(licenseStatus.hw_id || "", "HW_ID")}>
+                    复制 HW_ID
+                  </button>
+                </div>
+                {licenseDeviceCode && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-slate-600">设备码</span>
+                    <code className="rounded bg-white px-2 py-1 font-mono">{licenseDeviceCode}</code>
+                    <button type="button" className="btn-secondary text-xs" onClick={() => copyText(licenseDeviceCode, "设备码")}>
+                      复制设备码
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {!licenseStatus.activated && (
+              <>
+                <textarea
+                  className="input mt-3 min-h-[88px] font-mono text-sm"
+                  placeholder="粘贴激活码（格式：v1.xxxxx.yyyyy）"
+                  value={licenseCode}
+                  onChange={(e) => setLicenseCode(e.target.value)}
+                />
+                <label className="mt-3 flex items-start gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={licenseEulaChecked}
+                    onChange={(e) => setLicenseEulaChecked(e.target.checked)}
+                  />
+                  <span>
+                    我已阅读并同意 NovFlow 软件许可协议：激活码与本机绑定，禁止转售或共享；AI 生成内容需用户自行审核与合规使用。
+                  </span>
+                </label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="btn-primary text-sm" onClick={activateLicense} disabled={activatingLicense}>
+                    {activatingLicense ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    激活
+                  </button>
+                </div>
+              </>
+            )}
+            {licenseStatus.activated && (
+              <button type="button" className="btn-secondary mt-3 text-xs" onClick={deactivateLicense} disabled={activatingLicense}>
+                卸载授权
+              </button>
+            )}
+            {licenseMsg && <p className="mt-2 text-xs text-emerald-600">{licenseMsg}</p>}
+            <p className="mt-2 text-[11px] text-slate-500">激活码离线验证，无需联网。未激活时部分功能可能受限。</p>
+          </div>
+        )}
 
         <div>
 

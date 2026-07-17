@@ -6,7 +6,7 @@ import hmac
 import json
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +161,58 @@ def verify_device_code(profile: ProductProfile, device_code: str, hw_id: str) ->
     return clean == expected_clean
 
 
+def parse_expiry_date(value: str | None) -> date | None:
+    """Parse YYYY-MM-DD (or ISO datetime prefix) into a local calendar date."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            pass
+    try:
+        normalized = text.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        return dt.date()
+    except ValueError:
+        return None
+
+
+def check_license_expiry(
+    payload: dict[str, Any],
+    *,
+    reference: date | None = None,
+) -> tuple[bool, str | None]:
+    """Return (ok, error). Expiry day itself is still valid (inclusive end date)."""
+    today = reference or date.today()
+    mode = str(payload.get("license_mode") or "permanent")
+
+    if mode == "time_limited":
+        expiry = parse_expiry_date(str(payload.get("valid_until") or ""))
+        if expiry is None:
+            return False, "限时授权激活码缺少 valid_until"
+        if today > expiry:
+            return False, f"激活码已过期（有效期至 {expiry.isoformat()}）"
+
+    valid_until = str(payload.get("valid_until") or "").strip()
+    if valid_until and mode != "time_limited":
+        expiry = parse_expiry_date(valid_until)
+        if expiry is not None and today > expiry:
+            return False, f"激活码已过期（有效期至 {expiry.isoformat()}）"
+
+    if mode == "permanent":
+        activate_before = str(payload.get("activate_before") or "").strip()
+        if activate_before:
+            deadline = parse_expiry_date(activate_before)
+            if deadline is not None and today > deadline:
+                return False, f"激活码已超过首激截止日期（{deadline.isoformat()}）"
+
+    return True, None
+
+
 def build_license_payload(
     profile: ProductProfile,
     *,
@@ -183,8 +235,11 @@ def build_license_payload(
     }
     if license_mode == "permanent" and activate_before:
         payload["activate_before"] = activate_before
-    if license_mode == "time_limited" and valid_until:
-        payload["valid_until"] = valid_until
+    if license_mode == "time_limited":
+        expiry = parse_expiry_date(valid_until)
+        if expiry is None:
+            raise ValueError("time_limited 授权必须提供有效 valid_until（YYYY-MM-DD）")
+        payload["valid_until"] = expiry.isoformat()
     if batch_id:
         payload["batch_id"] = batch_id
     if customer_ref:
@@ -252,19 +307,11 @@ def validate_license_code(
     if not valid:
         return {"ok": False, "error": err}
 
-    today = date.today().isoformat()
-    mode = payload.get("license_mode", "permanent")
-    if mode == "permanent":
-        activate_before = payload.get("activate_before")
-        if activate_before and today > str(activate_before):
-            return {"ok": False, "error": f"激活码已超过首激截止日期（{activate_before}）"}
-    elif mode == "time_limited":
-        valid_until = payload.get("valid_until")
-        if not valid_until:
-            return {"ok": False, "error": "限时授权激活码缺少 valid_until"}
-        if today > str(valid_until):
-            return {"ok": False, "error": f"激活码已过期（有效期至 {valid_until}）"}
+    ok, err = check_license_expiry(payload)
+    if not ok:
+        return {"ok": False, "error": err}
 
+    mode = payload.get("license_mode", "permanent")
     return {"ok": True, "license_mode": mode, "payload": payload}
 
 
@@ -317,24 +364,25 @@ def check_license_status(
 
     payload = result.get("payload") or {}
     mode = payload.get("license_mode", license_data.get("license_mode", "permanent"))
-    if mode == "time_limited":
-        valid_until = str(payload.get("valid_until") or license_data.get("valid_until") or "").strip()
-        if not valid_until:
-            return {
-                "activated": False,
-                "license_mode": "time_limited",
-                "error": "无法判定限时授权的截止日期",
-                "payload": license_data,
-            }
-        if date.today().isoformat() > valid_until:
-            return {
-                "activated": False,
-                "license_mode": "time_limited",
-                "error": f"许可证已过期（有效期至 {valid_until}）",
-                "payload": license_data,
-            }
+    ok, err = check_license_expiry(payload)
+    if not ok:
+        return {
+            "activated": False,
+            "license_mode": mode,
+            "error": err.replace("激活码", "许可证"),
+            "payload": license_data,
+        }
 
-    return {"activated": True, "license_mode": mode, "payload": license_data}
+    valid_until = payload.get("valid_until") or license_data.get("valid_until")
+    expiry = parse_expiry_date(str(valid_until or ""))
+    status: dict[str, Any] = {
+        "activated": True,
+        "license_mode": mode,
+        "payload": license_data,
+    }
+    if expiry is not None:
+        status["valid_until"] = expiry.isoformat()
+    return status
 
 
 def activate_license(profile: ProductProfile, license_code: str, hw_id: str) -> dict[str, Any]:

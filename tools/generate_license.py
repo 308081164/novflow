@@ -40,10 +40,16 @@ def cmd_generate(args: argparse.Namespace) -> None:
     ok, hw_id, err = normalize_hw_id_input(args.hw_id)
     if not ok:
         raise SystemExit(err)
+    mode = args.mode
+    if args.valid_until and mode == "permanent":
+        mode = "time_limited"
+        print("提示: 已指定 --valid-until，自动使用 time_limited 模式", file=sys.stderr)
+    if mode == "time_limited" and not args.valid_until:
+        raise SystemExit("限时授权必须指定 --valid-until（格式 YYYY-MM-DD）")
     private_key = load_issuer_private_key(Path(args.private_key) if args.private_key else None)
     payload = {
         "hw_id": hw_id,
-        "license_mode": args.mode,
+        "license_mode": mode,
         "valid_until": args.valid_until,
         "activate_before": args.activate_before,
         "batch_id": args.batch or "",
@@ -54,7 +60,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     print(f"产品: {profile.display_name} ({profile.product_id})")
     print(f"HW_ID: {hw_id}")
     print(f"设备码: {dc}")
-    print(f"授权: {args.mode}")
+    print(f"授权: {mode}")
     print()
     print("激活码:")
     print(code)

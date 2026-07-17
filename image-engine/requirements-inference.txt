@@ -1,0 +1,6 @@
+# Heavy inference stack — installed after base deps in package-dlc.ps1
+torch>=2.1.0
+diffusers>=0.30.0
+transformers>=4.40.0
+accelerate>=0.30.0
+safetensors>=0.4.0

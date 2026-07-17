@@ -29,7 +29,10 @@ from app.services.image_upload import ImageUploadError, upload_book_cover, uploa
 from app.services.jimeng_image import JimengError, test_connection
 from app.services.storage import storage
 
-router = APIRouter(tags=["images"], dependencies=[Depends(require_desktop_license)])
+router = APIRouter(tags=["images"])
+
+# 仅 AI 生成 / 上传 / 删除等写操作需要桌面授权；浏览封面与媒体不拦截阅读。
+_license = [Depends(require_desktop_license)]
 
 
 async def _read_image_file(file: UploadFile) -> tuple[bytes, str, str | None]:
@@ -99,7 +102,7 @@ def serve_media(
     return Response(content=data, media_type=ct)
 
 
-@router.post("/settings/jimeng/test")
+@router.post("/settings/jimeng/test", dependencies=_license)
 async def test_jimeng_api(data: JimengTestIn, user: User = Depends(_auth_user)):
     from app.services.api_key import resolve_jimeng_config
 
@@ -115,7 +118,7 @@ async def test_jimeng_api(data: JimengTestIn, user: User = Depends(_auth_user)):
         raise HTTPException(400, str(exc))
 
 
-@router.post("/books/{book_id}/cover/upload", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/cover/upload", response_model=GeneratedImageOut, dependencies=_license)
 async def upload_cover(
     book_id: int,
     file: UploadFile = File(...),
@@ -131,7 +134,7 @@ async def upload_cover(
         raise HTTPException(400, str(exc))
 
 
-@router.post("/books/{book_id}/cover/generate", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/cover/generate", response_model=GeneratedImageOut, dependencies=_license)
 async def generate_cover(
     book_id: int,
     data: CoverGenerateIn,
@@ -154,7 +157,7 @@ def get_cover(book_id: int, db: Session = Depends(get_db), user: User = Depends(
     return {"url": media_url(book.cover_image_key), "object_key": book.cover_image_key}
 
 
-@router.post("/books/{book_id}/characters/{char_id}/images/upload", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/characters/{char_id}/images/upload", response_model=GeneratedImageOut, dependencies=_license)
 async def upload_character_image_api(
     book_id: int,
     char_id: int,
@@ -175,7 +178,7 @@ async def upload_character_image_api(
         raise HTTPException(400, str(exc))
 
 
-@router.post("/books/{book_id}/characters/{char_id}/images/generate", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/characters/{char_id}/images/generate", response_model=GeneratedImageOut, dependencies=_license)
 async def generate_character_image_api(
     book_id: int,
     char_id: int,
@@ -211,7 +214,7 @@ def list_character_images(
     return [GeneratedImageOut(**x) for x in enrich_character_images(ch)]
 
 
-@router.post("/books/{book_id}/characters/{char_id}/images/active", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/characters/{char_id}/images/active", response_model=GeneratedImageOut, dependencies=_license)
 def set_character_active_portrait(
     book_id: int,
     char_id: int,
@@ -243,7 +246,7 @@ def set_character_active_portrait(
     raise HTTPException(500, "设置失败")
 
 
-@router.delete("/books/{book_id}/characters/{char_id}/images/{image_index}")
+@router.delete("/books/{book_id}/characters/{char_id}/images/{image_index}", dependencies=_license)
 def delete_character_image(
     book_id: int,
     char_id: int,
@@ -287,7 +290,7 @@ def get_chapter_illustrations(
     return [GeneratedImageOut(**x) for x in list_chapter_illustrations(db, chapter)]
 
 
-@router.post("/books/{book_id}/chapters/{chapter_no}/illustrations/upload", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/chapters/{chapter_no}/illustrations/upload", response_model=GeneratedImageOut, dependencies=_license)
 async def upload_illustration_api(
     book_id: int,
     chapter_no: int,
@@ -305,7 +308,7 @@ async def upload_illustration_api(
         raise HTTPException(400, str(exc))
 
 
-@router.post("/books/{book_id}/chapters/{chapter_no}/illustrations/generate", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/chapters/{chapter_no}/illustrations/generate", response_model=GeneratedImageOut, dependencies=_license)
 async def generate_illustration_api(
     book_id: int,
     chapter_no: int,
@@ -331,7 +334,7 @@ async def generate_illustration_api(
         raise HTTPException(400, str(exc))
 
 
-@router.delete("/books/{book_id}/chapters/{chapter_no}/illustrations/{ill_id}")
+@router.delete("/books/{book_id}/chapters/{chapter_no}/illustrations/{ill_id}", dependencies=_license)
 def delete_illustration(
     book_id: int,
     chapter_no: int,
@@ -353,7 +356,7 @@ def delete_illustration(
     return {"ok": True}
 
 
-@router.post("/books/{book_id}/images/refine", response_model=GeneratedImageOut)
+@router.post("/books/{book_id}/images/refine", response_model=GeneratedImageOut, dependencies=_license)
 async def refine_image(
     book_id: int,
     data: ImageRefineIn,

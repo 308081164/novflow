@@ -22,7 +22,7 @@ IMAGE_DLC = ProductProfile(
     product_id="novflow_image_dlc",
     layout="1",
     license_basename="novflow-image-dlc-license.json",
-    display_name="NovFlow Image Engine DLC",
+    display_name="NovFlow 本地生图引擎",
 )
 
 ALL_PRODUCTS = (DESKTOP, IMAGE_DLC)

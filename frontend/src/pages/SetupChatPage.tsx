@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, MessageCircle, PenLine, Send } from "lucide-react";
 import { api, Book, GeneratedImage, SetupCard, SetupMessage, SetupSnapshot } from "../api";
+import AppAlertModal from "../components/AppAlertModal";
 import { PageHeader } from "../components/Layout";
 import ContextPanel from "../components/setup/ContextPanel";
 import SetupActionBar from "../components/setup/SetupActionBar";
 import { SetupCardEditModal, SetupCardGrid } from "../components/setup/SetupCard";
 import GeneratedImageGallery from "../components/GeneratedImageGallery";
 import { normalizeSetupMessage } from "../utils/setupMessage";
+import { closedErrorModal, errorModalFromUnknown, type ErrorModalState } from "../utils/errorModal";
 import type { TimelineChapter } from "../components/setup/OutlineTimeline";
 
 const SUGGESTIONS = [
@@ -50,7 +52,12 @@ export default function SetupChatPage() {
   const [editCard, setEditCard] = useState<SetupCard | null>(null);
   const [editOutlineChapter, setEditOutlineChapter] = useState<TimelineChapter | undefined>();
   const [err, setErr] = useState("");
+  const [errorModal, setErrorModal] = useState<ErrorModalState>(closedErrorModal);
   const [finishing, setFinishing] = useState(false);
+
+  const showErrorModal = (error: unknown, fallbackTitle = "操作失败") => {
+    setErrorModal(errorModalFromUnknown(error, fallbackTitle));
+  };
 
   const load = async () => {
     const ctx = await api.setupChatContext(id);
@@ -93,7 +100,7 @@ export default function SetupChatPage() {
       setBook(res.book);
       setSnapshot(res.snapshot);
     } catch (e) {
-      setErr(String(e));
+      showErrorModal(e, "对话请求失败");
       setInput(msg);
       // 流式 done 失败时，服务端可能已保存消息，尝试从服务器恢复
       try {
@@ -125,7 +132,7 @@ export default function SetupChatPage() {
         );
       }
     } catch (e) {
-      setErr(String(e));
+      showErrorModal(e, "卡片采纳失败");
     } finally {
       setApplyingId(null);
       setEditCard(null);
@@ -140,7 +147,7 @@ export default function SetupChatPage() {
       await api.setupChatFinish(id);
       nav(`/books/${id}`);
     } catch (e) {
-      setErr(String(e));
+      showErrorModal(e, "完成设定失败");
     } finally {
       setFinishing(false);
     }
@@ -374,6 +381,14 @@ export default function SetupChatPage() {
           onSave={(c) => applyCard(c)}
         />
       )}
+
+      <AppAlertModal
+        open={errorModal.open}
+        title={errorModal.title}
+        message={errorModal.message}
+        settingsLink={errorModal.settingsLink}
+        onClose={() => setErrorModal(closedErrorModal)}
+      />
     </div>
   );
 }

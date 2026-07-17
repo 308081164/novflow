@@ -91,7 +91,7 @@ if (-not $StageOnly) {
     Write-Host "  Inno Setup: $iscc" -ForegroundColor Gray
 }
 
-Write-Step "Building staging (frontend + backend + NovFlow.exe)"
+Write-Step "Building staging (frontend + backend + Electron shell)"
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "desktop\build.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -133,7 +133,9 @@ Write-Host "  $($launcherInfo.FullName)" -ForegroundColor Gray
 Write-Host "  Size: $(Format-FileSize $launcherInfo.Length)"
 Write-Host ""
 Write-Host "Notes:" -ForegroundColor Gray
-Write-Host "  - Launcher uses pywebview (WebView2); falls back to system browser"
+Write-Host "  - Desktop shell: Electron (embedded window, no browser fallback)"
+Write-Host "  - Installer languages: Simplified Chinese (default) + English"
+Write-Host "  - Logs: %LocalAppData%\\NovFlow\\data\\electron.log"
 Write-Host "  - User data: %LocalAppData%\NovFlow\"
 Write-Host "  - Reinstall keeps existing books"
 Write-Host "  - Version: edit MyAppVersion in installer\novflow.iss"

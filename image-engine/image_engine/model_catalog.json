@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "sd15-lite",
+      "name": "Stable Diffusion 1.5（Lite 基础模型）",
+      "tier": "lite",
+      "filename": "v1-5-pruned-emaonly.safetensors",
+      "size_bytes": 4265146304,
+      "size_display": "约 4.0 GB",
+      "description": "4GB 显存可用；NovFlow Lite 档默认模型（SD 1.5 pruned emaonly）",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-v1-5/resolve/master/v1-5-pruned-emaonly.safetensors",
+        "https://hf-mirror.com/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors",
+        "https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
+      ],
+      "sha256": null
+    },
+    {
+      "id": "sdxl-standard",
+      "name": "Stable Diffusion XL Base 1.0（Standard）",
+      "tier": "standard",
+      "filename": "sd_xl_base_1.0.safetensors",
+      "size_bytes": 6938078334,
+      "size_display": "约 6.5 GB",
+      "description": "建议 8GB+ 显存；Standard 档高清模型",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-xl-base-1.0/resolve/master/sd_xl_base_1.0.safetensors",
+        "https://hf-mirror.com/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
+      ],
+      "sha256": null
+    }
+  ]
+}

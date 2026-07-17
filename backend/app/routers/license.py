@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.config import IS_DESKTOP
 from app.license_bridge import DESKTOP, LicenseService
 
 router = APIRouter(prefix="/license", tags=["license"])
 
 
 def _desktop_mode() -> bool:
-    return os.environ.get("NOVFLOW_DESKTOP", "").strip() in ("1", "true", "yes")
+    return IS_DESKTOP
 
 
 def _svc() -> LicenseService:
@@ -31,6 +30,8 @@ def license_status():
     svc = _svc()
     st = svc.status()
     st["desktop_mode"] = True
+    if st.get("activated") and st.get("valid_until"):
+        st.setdefault("license_mode", st.get("license_mode") or "time_limited")
     return st
 
 

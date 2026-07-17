@@ -42,6 +42,11 @@ class LicenseDialog(tk.Toplevel):
         self.minsize(560, 480)
         self.transient(parent)
         self.grab_set()
+        self.deiconify()
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(300, lambda: self.attributes("-topmost", False))
+        self.focus_force()
 
         info = license_svc.device_info()
         status = license_svc.status()
@@ -146,7 +151,13 @@ class LicenseDialog(tk.Toplevel):
 def show_license_dialog(license_svc: LicenseService, *, modal: bool = True) -> None:
     root = tk.Tk()
     root.withdraw()
+    root.update_idletasks()
     dlg = LicenseDialog(root, license_svc)
+    dlg.update_idletasks()
+    dlg.deiconify()
+    dlg.lift()
+    dlg.attributes("-topmost", True)
+    dlg.focus_force()
     if modal:
         root.wait_window(dlg)
     else:

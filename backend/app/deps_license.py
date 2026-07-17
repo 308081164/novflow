@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import HTTPException
 
+from app.config import IS_DESKTOP
 from app.license_bridge import DESKTOP, LicenseService
 
 
 def require_desktop_license() -> None:
-    if os.environ.get("NOVFLOW_DESKTOP", "").strip() not in ("1", "true", "yes"):
+    if not IS_DESKTOP:
         return
-    svc = LicenseService(DESKTOP)
-    if not svc.is_activated():
-        raise HTTPException(
-            403,
-            detail={
-                "error": "license_required",
-                "message": "NovFlow Desktop 未激活。请在启动器或设置中完成授权激活。",
-                "product_id": DESKTOP.product_id,
-            },
-        )
+    st = LicenseService(DESKTOP).status()
+    if st.get("activated"):
+        return
+    err = str(st.get("error") or "请前往设置完成授权激活")
+    expired = "过期" in err
+    raise HTTPException(
+        403,
+        detail={
+            "error": "license_expired" if expired else "license_required",
+            "message": err,
+            "product_id": DESKTOP.product_id,
+            "valid_until": st.get("valid_until"),
+        },
+    )

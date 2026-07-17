@@ -1,9 +1,10 @@
-NovFlow Image Engine DLC 最终用户许可协议（EULA）
+NovFlow 本地生图引擎（Image Engine DLC）最终用户许可协议（EULA）
 
-本软件为 NovFlow 的独立可选组件（本地图像生成引擎），与 NovFlow Desktop 主程序分开发布、分别授权。
+本软件为「NovFlow 本地生图引擎」，是 NovFlow 的独立可选组件，与 NovFlow 主程序分开发布、分别授权、分别安装。
+本组件的产品名称、开始菜单文件夹、默认安装目录与卸载项均独立于 NovFlow 主程序，不得与主程序混同。
 
 1. 许可范围
-   仅在您持有有效的 NovFlow Image Engine DLC 激活码并完成本机激活后，方可使用本引擎的完整生图功能。
+   仅在您持有有效的「NovFlow 本地生图引擎」激活码并完成本机激活后，方可使用本引擎的完整生图功能。
 
 2. 免责声明
    本引擎生成的图像由您自行负责使用与分发。开发者不对生成内容承担法律责任。

@@ -21,6 +21,7 @@ from app.schemas import (
     WriteAgentNewSessionOut,
     WriteAgentRevertIn,
 )
+from app.services.image_gen import refresh_meta_images
 from app.services.setup_agent import apply_card, reconcile_cards_with_book
 from app.services.write_agent import (
     chat_turn,
@@ -54,7 +55,7 @@ def _msg_out(m: WriteAgentMessage, book: Book, db: Session) -> WriteAgentMessage
         content=m.content or "",
         cards=[SetupCardOut(**c) if isinstance(c, dict) else c for c in cards],
         actions=[SetupActionOut(**a) if isinstance(a, dict) else a for a in (m.actions_json or [])],
-        meta=m.meta_json or {},
+        meta=refresh_meta_images(m.meta_json or {}),
         created_at=m.created_at,
     )
 

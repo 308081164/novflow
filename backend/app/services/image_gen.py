@@ -32,6 +32,35 @@ def media_url(object_key: str) -> str:
     return _media_url_from_provider(object_key)
 
 
+def refresh_image_record(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Ensure media `url` always matches `object_key` (fixes stale keys after book import)."""
+    if not isinstance(raw, dict):
+        return None
+    rec = dict(raw)
+    key = str(rec.get("object_key") or "").strip()
+    if key:
+        rec["url"] = media_url(key)
+    return rec
+
+
+def refresh_image_records(images: list[Any] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for raw in images or []:
+        rec = refresh_image_record(raw if isinstance(raw, dict) else None)
+        if rec:
+            out.append(rec)
+    return out
+
+
+def refresh_meta_images(meta: dict[str, Any] | None) -> dict[str, Any]:
+    """Rewrite meta.images urls from object_key for chat history rendering."""
+    data = dict(meta or {})
+    imgs = data.get("images")
+    if isinstance(imgs, list) and imgs:
+        data["images"] = refresh_image_records(imgs)
+    return data
+
+
 def is_image_generation_message(msg: str) -> bool:
     t = (msg or "").strip().lower()
     if not t:
@@ -132,7 +161,7 @@ def _image_backend_unconfigured_message(user: User) -> str:
         return "生图功能已关闭。请在设置中选择云端即梦或本地 DLC 后端。"
     if backend == "local_dlc":
         return (
-            "本地生图未就绪。请安装并启动 Image Engine DLC，"
+            "本地生图未就绪。请安装并启动 NovFlow 本地生图引擎，"
             "在设置页确认免责声明并测试连接。"
         )
     return "请先在设置中配置即梦 API Key。"
@@ -304,9 +333,9 @@ def enrich_character_images(character: Character) -> list[dict[str, Any]]:
     active = active_portrait_object_key(character)
     result: list[dict[str, Any]] = []
     for i, raw in enumerate(character.images_json or []):
-        if not isinstance(raw, dict):
+        rec = refresh_image_record(raw if isinstance(raw, dict) else None)
+        if not rec:
             continue
-        rec = dict(raw)
         rec["id"] = rec.get("id") or (i + 1)
         rec["is_active"] = bool(active and rec.get("object_key") == active)
         result.append(rec)

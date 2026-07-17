@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import DATA_DIR, ROOT, settings
+from app.config import DATA_DIR, IS_DESKTOP, ROOT, settings
 from app.database import SessionLocal
 from app.db_init import init_database
 from app.routers import ai, auth, books, chapters, characters, images, license, settings as settings_router, setup_chat, worldview, write_agent
@@ -72,9 +72,7 @@ def health():
         "minio_bucket": settings.minio_bucket if settings.use_minio else None,
         "jimeng_configured": bool(settings.jimeng_api_key),
     }
-    import os
-
-    if os.environ.get("NOVFLOW_DESKTOP", "").strip() in ("1", "true", "yes"):
+    if IS_DESKTOP:
         try:
             from app.license_bridge import DESKTOP, LicenseService
 
@@ -83,6 +81,7 @@ def health():
                 "activated": bool(st.get("activated")),
                 "product_id": DESKTOP.product_id,
                 "error": st.get("error"),
+                "valid_until": st.get("valid_until"),
             }
         except Exception as exc:
             payload["desktop_license"] = {"activated": False, "error": str(exc)}
@@ -91,6 +90,26 @@ def health():
 
 STATIC_DIR = ROOT / "frontend" / "dist"
 ASSETS_DIR = STATIC_DIR / "assets"
+# Root-level public assets (icon.png / logo.png / favicon.*) must be served as files.
+# The SPA catch-all must not return index.html for these paths.
+_STATIC_FILE_SUFFIXES = {
+    ".png",
+    ".ico",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".svg",
+    ".json",
+    ".txt",
+    ".map",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".css",
+    ".js",
+}
+
 if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
     if ASSETS_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
@@ -99,6 +118,14 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
     def spa(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
+        # Prevent path traversal; only serve files under STATIC_DIR.
+        candidate = (STATIC_DIR / full_path).resolve()
+        try:
+            candidate.relative_to(STATIC_DIR.resolve())
+        except ValueError:
+            return {"detail": "Not Found"}
+        if candidate.is_file() and candidate.suffix.lower() in _STATIC_FILE_SUFFIXES:
+            return FileResponse(candidate)
         index = STATIC_DIR / "index.html"
         if index.exists():
             return FileResponse(index)

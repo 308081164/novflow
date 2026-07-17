@@ -60,6 +60,9 @@ class LicenseService:
         name = self.profile.display_name
         if st.get("activated"):
             mode = st.get("license_mode", "permanent")
+            valid_until = st.get("valid_until")
+            if valid_until:
+                return f"{name}：已激活（有效期至 {valid_until}）"
             if mode == "permanent":
                 return f"{name}：已激活"
             return f"{name}：已激活（{mode}）"

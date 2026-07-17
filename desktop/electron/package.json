@@ -1,0 +1,66 @@
+{
+  "name": "novflow-desktop",
+  "version": "0.2.0",
+  "description": "NovFlow Electron desktop shell",
+  "author": "NovFlow",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win dir"
+  },
+  "devDependencies": {
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.novflow.desktop",
+    "productName": "NovFlow",
+    "directories": {
+      "output": "../../dist/electron-build",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "package.json",
+      "icon.png",
+      "icon.ico",
+      "logo.png"
+    ],
+    "icon": "icon.ico",
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "../../dist/novflow-installer-stage",
+        "to": "novflow",
+        "filter": [
+          "**/*",
+          "!electron-build/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico",
+      "executableName": "NovFlow"
+    },
+    "asar": true
+  }
+}

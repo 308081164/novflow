@@ -1072,7 +1072,8 @@ def sync_settings_from_messages(db: Session, book: Book) -> dict[str, Any]:
             from app.services.character_cards import list_character_cards
 
             existing = list_character_cards(db, book.id)
-            ingest_character_cards(db, book, char_cards + existing, overwrite=True)
+            # Prefer longer DB fields; do not wipe imported character cards with partial message cards.
+            ingest_character_cards(db, book, char_cards + existing, overwrite=False)
             stats["characters_synced"] = len(char_cards)
             stats["cards_applied"] += 1
         except Exception as e:

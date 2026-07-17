@@ -23,6 +23,8 @@ from app.models import (
     WriteAgentMessage,
 )
 from app.services.chapter_content import get_content, set_content
+from app.services.character_cards import ingest_character_cards
+from app.services.image_gen import media_url, refresh_image_records
 from app.services.pipeline import ensure_book_chapter_slots, word_count
 from app.services.storage import storage
 
@@ -82,6 +84,45 @@ def _from_dt(value: str | None) -> datetime | None:
         return None
 
 
+def _plan_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "\n".join(str(x).strip() for x in value if str(x).strip())
+    return str(value).strip()
+
+
+def _chapter_plan_from_row(book_id: int, row: dict[str, Any]) -> ChapterPlan | None:
+    """将书籍包中的章节规划行映射为 ChapterPlan（兼容 synopsis/comedy_hook 别名）。"""
+    try:
+        no = int(row.get("chapter_no") or 0)
+    except (TypeError, ValueError):
+        return None
+    if no < 1:
+        return None
+    meta = row.get("meta_json") if isinstance(row.get("meta_json"), dict) else {}
+    meta = dict(meta)
+    for key in ("cast", "events", "entrances", "exits"):
+        if key not in meta and row.get(key) is not None:
+            meta[key] = row[key]
+    cast = meta.get("cast") or []
+    character_names = _plan_text(row.get("character_names"))
+    if not character_names and isinstance(cast, list):
+        character_names = "、".join(str(x) for x in cast if str(x).strip())
+    return ChapterPlan(
+        book_id=book_id,
+        chapter_no=no,
+        title=_plan_text(row.get("title")) or f"第{no}章",
+        mode=_plan_text(row.get("mode")) or "逃",
+        scene=_plan_text(row.get("scene")),
+        plot_points=_plan_text(row.get("plot_points") or row.get("synopsis")),
+        comedy_core=_plan_text(row.get("comedy_core") or row.get("comedy_hook")),
+        pov_switch=bool(row.get("pov_switch")),
+        character_names=character_names,
+        meta_json=meta,
+    )
+
+
 def _safe_filename(title: str) -> str:
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", (title or "book").strip())[:80]
     return name or "book"
@@ -90,6 +131,12 @@ def _safe_filename(title: str) -> str:
 def _remap_object_key(key: str, old_book_id: int, new_book_id: int) -> str:
     if not key:
         return ""
+    if not old_book_id or old_book_id == new_book_id:
+        return key
+    # Media API URLs: /api/v1/media/images/{book_id}/...
+    marker = f"/images/{old_book_id}/"
+    if marker in key:
+        return key.replace(marker, f"/images/{new_book_id}/")
     if key.startswith(f"images/{old_book_id}/"):
         return f"images/{new_book_id}/" + key[len(f"images/{old_book_id}/") :]
     if key.startswith(f"{old_book_id}/"):
@@ -213,7 +260,9 @@ def _load_book_graph(db: Session, book: Book) -> dict[str, Any]:
         },
         "book": {f: getattr(book, f) if f != "created_at" else _dt(book.created_at) for f in BOOK_FIELDS},
         "worldview": ({f: getattr(wv, f) for f in WORLDVIEW_FIELDS} if wv else None),
-        "characters": [{f: getattr(c, f) for f in CHARACTER_FIELDS} for c in chars],
+        "characters": [
+            {"id": c.id, **{f: getattr(c, f) for f in CHARACTER_FIELDS}} for c in chars
+        ],
         "chapter_plans": [{f: getattr(p, f) for f in PLAN_FIELDS} for p in plans],
         "chapters": chapter_payload,
         "chapter_versions": versions,
@@ -283,7 +332,13 @@ def _read_zip_json(zf: zipfile.ZipFile, name: str, default: Any) -> Any:
 
 def _rewrite_json_keys(obj: Any, old_book_id: int, new_book_id: int) -> Any:
     if isinstance(obj, str):
-        if obj.startswith("images/") or obj.startswith(f"{old_book_id}/"):
+        if not old_book_id or old_book_id == new_book_id:
+            return obj
+        if (
+            obj.startswith("images/")
+            or obj.startswith(f"{old_book_id}/")
+            or f"/images/{old_book_id}/" in obj
+        ):
             return _remap_object_key(obj, old_book_id, new_book_id)
         return obj
     if isinstance(obj, list):
@@ -291,6 +346,48 @@ def _rewrite_json_keys(obj: Any, old_book_id: int, new_book_id: int) -> Any:
     if isinstance(obj, dict):
         return {k: _rewrite_json_keys(v, old_book_id, new_book_id) for k, v in obj.items()}
     return obj
+
+
+def _rewrite_character_ids(obj: Any, id_map: dict[int, int]) -> Any:
+    """Remap character_id fields after import assigns new primary keys."""
+    if not id_map:
+        return obj
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if k == "character_id" and v is not None:
+                try:
+                    old = int(v)
+                    out[k] = id_map.get(old, old)
+                    continue
+                except (TypeError, ValueError):
+                    pass
+            out[k] = _rewrite_character_ids(v, id_map)
+        return out
+    if isinstance(obj, list):
+        return [_rewrite_character_ids(x, id_map) for x in obj]
+    return obj
+
+
+def _normalize_character_images(images: Any) -> list:
+    if not isinstance(images, list):
+        return []
+    return refresh_image_records(images)
+
+
+def _character_cards_from_messages(setup_msgs: Any, write_msgs: Any) -> list[dict[str, Any]]:
+    """Collect character cards embedded in chat history (fallback when characters.json is thin)."""
+    cards: list[dict[str, Any]] = []
+    for msgs in (setup_msgs, write_msgs):
+        if not isinstance(msgs, list):
+            continue
+        for row in msgs:
+            if not isinstance(row, dict):
+                continue
+            for card in row.get("cards_json") or []:
+                if isinstance(card, dict) and card.get("type") == "character":
+                    cards.append(card)
+    return cards
 
 
 def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, dict[str, int]]:
@@ -348,39 +445,46 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
             wv = Worldview(book_id=book.id, **{f: wv_data.get(f, "") for f in WORLDVIEW_FIELDS})
             db.add(wv)
 
+        char_id_map: dict[int, int] = {}
         for row in characters if isinstance(characters, list) else []:
             if not isinstance(row, dict):
                 continue
-            db.add(
-                Character(
-                    book_id=book.id,
-                    name=str(row.get("name") or "未命名"),
-                    role=str(row.get("role") or "support"),
-                    summary=str(row.get("summary") or ""),
-                    voice_notes=str(row.get("voice_notes") or ""),
-                    content=str(row.get("content") or ""),
-                    arc_json=row.get("arc_json") if isinstance(row.get("arc_json"), dict) else {},
-                    images_json=row.get("images_json") if isinstance(row.get("images_json"), list) else [],
-                )
+            images = _normalize_character_images(row.get("images_json"))
+            ch = Character(
+                book_id=book.id,
+                name=str(row.get("name") or "未命名"),
+                role=str(row.get("role") or "support"),
+                summary=str(row.get("summary") or ""),
+                voice_notes=str(row.get("voice_notes") or ""),
+                content=str(row.get("content") or ""),
+                arc_json=row.get("arc_json") if isinstance(row.get("arc_json"), dict) else {},
+                images_json=images,
             )
+            db.add(ch)
+            db.flush()
+            old_cid = row.get("id")
+            if old_cid is not None:
+                try:
+                    char_id_map[int(old_cid)] = ch.id
+                except (TypeError, ValueError):
+                    pass
+            if images:
+                for img in images:
+                    img["character_id"] = ch.id
+                    key = str(img.get("object_key") or "").strip()
+                    if key:
+                        img["url"] = media_url(key)
+                ch.images_json = list(images)
 
+        plans_imported = 0
         for row in plans if isinstance(plans, list) else []:
-            if not isinstance(row, dict) or not row.get("chapter_no"):
+            if not isinstance(row, dict):
                 continue
-            db.add(
-                ChapterPlan(
-                    book_id=book.id,
-                    chapter_no=int(row["chapter_no"]),
-                    title=str(row.get("title") or ""),
-                    mode=str(row.get("mode") or "逃"),
-                    scene=str(row.get("scene") or ""),
-                    plot_points=str(row.get("plot_points") or ""),
-                    comedy_core=str(row.get("comedy_core") or ""),
-                    pov_switch=bool(row.get("pov_switch")),
-                    character_names=str(row.get("character_names") or ""),
-                    meta_json=row.get("meta_json") if isinstance(row.get("meta_json"), dict) else {},
-                )
-            )
+            plan = _chapter_plan_from_row(book.id, row)
+            if not plan:
+                continue
+            db.add(plan)
+            plans_imported += 1
 
         chapter_id_by_no: dict[int, int] = {}
         chapters_imported = 0
@@ -477,9 +581,16 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
             parent_export = int(row.get("parent_export_id") or 0)
             ill.parent_id = ill_id_map.get(parent_export)
 
+        if char_id_map:
+            setup_msgs = _rewrite_character_ids(setup_msgs, char_id_map)
+            write_msgs = _rewrite_character_ids(write_msgs, char_id_map)
+
         for row in setup_msgs if isinstance(setup_msgs, list) else []:
             if not isinstance(row, dict):
                 continue
+            meta = row.get("meta_json") or {}
+            if isinstance(meta, dict) and isinstance(meta.get("images"), list):
+                meta = {**meta, "images": refresh_image_records(meta.get("images"))}
             db.add(
                 SetupMessage(
                     book_id=book.id,
@@ -487,7 +598,7 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
                     content=str(row.get("content") or ""),
                     cards_json=row.get("cards_json") or [],
                     actions_json=row.get("actions_json") or [],
-                    meta_json=row.get("meta_json") or {},
+                    meta_json=meta if isinstance(meta, dict) else {},
                     created_at=_from_dt(row.get("created_at")) or datetime.utcnow(),
                 )
             )
@@ -495,6 +606,9 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
         for row in write_msgs if isinstance(write_msgs, list) else []:
             if not isinstance(row, dict):
                 continue
+            meta = row.get("meta_json") or {}
+            if isinstance(meta, dict) and isinstance(meta.get("images"), list):
+                meta = {**meta, "images": refresh_image_records(meta.get("images"))}
             db.add(
                 WriteAgentMessage(
                     book_id=book.id,
@@ -503,7 +617,7 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
                     content=str(row.get("content") or ""),
                     cards_json=row.get("cards_json") or [],
                     actions_json=row.get("actions_json") or [],
-                    meta_json=row.get("meta_json") or {},
+                    meta_json=meta if isinstance(meta, dict) else {},
                     created_at=_from_dt(row.get("created_at")) or datetime.utcnow(),
                 )
             )
@@ -533,11 +647,20 @@ def import_book_package(db: Session, user_id: int, raw: bytes) -> tuple[Book, di
             storage.put_bytes(key, data, content_type=ct)
             media_imported += 1
 
+        msg_char_cards = _character_cards_from_messages(setup_msgs, write_msgs)
+
     db.commit()
     db.refresh(book)
+
+    # After commit: fill Character table from chat cards when characters.json was empty/partial.
+    if msg_char_cards:
+        ingest_character_cards(db, book, msg_char_cards, overwrite=False)
+        db.refresh(book)
+
+    char_count = db.query(Character).filter(Character.book_id == book.id).count()
     stats = {
-        "characters": len(characters) if isinstance(characters, list) else 0,
-        "chapter_plans": len(plans) if isinstance(plans, list) else 0,
+        "characters": char_count,
+        "chapter_plans": plans_imported,
         "chapters_with_content": chapters_imported,
         "setup_messages": len(setup_msgs) if isinstance(setup_msgs, list) else 0,
         "write_agent_messages": len(write_msgs) if isinstance(write_msgs, list) else 0,

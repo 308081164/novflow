@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.deps_license import require_desktop_license
 from app.models import Book, Chapter, ChapterPlan, ChapterVersion, GenerationJob, LintIssue, User
 from app.schemas import ChapterOut, ChapterPlanOut, ChapterPlanUpdate, ChapterSave, FixDraftIn, FixDraftOut, FixIssueIn, GenerateIn, JobOut, LintCheckIn, LintReport
 from app.services.chapter_content import get_content, has_content, set_content
-from app.services.pipeline import ensure_book_chapter_slots
+from app.services.pipeline import ensure_book_chapter_slots, execute_generation_job, run_ai_lint_on_content, run_lint
 from app.services.rule_engine import auto_fix_content, auto_fix_issue, lint_chapter, lint_report_from_issues, word_count
 
 router = APIRouter(prefix="/books/{book_id}", tags=["chapters"])
@@ -378,7 +379,7 @@ async def _run_job_task(job_id: int):
         db.close()
 
 
-@router.post("/chapters/{chapter_no}/generate", response_model=JobOut)
+@router.post("/chapters/{chapter_no}/generate", response_model=JobOut, dependencies=[Depends(require_desktop_license)])
 def generate(
     book_id: int,
     chapter_no: int,
@@ -397,7 +398,7 @@ def generate(
     return job
 
 
-@router.post("/chapters/{chapter_no}/expand", response_model=JobOut)
+@router.post("/chapters/{chapter_no}/expand", response_model=JobOut, dependencies=[Depends(require_desktop_license)])
 def expand(
     book_id: int,
     chapter_no: int,
@@ -410,7 +411,7 @@ def expand(
     return job
 
 
-@router.post("/chapters/{chapter_no}/fix-ai", response_model=JobOut)
+@router.post("/chapters/{chapter_no}/fix-ai", response_model=JobOut, dependencies=[Depends(require_desktop_license)])
 def fix_ai(
     book_id: int,
     chapter_no: int,

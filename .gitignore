@@ -20,3 +20,7 @@ desktop/build/
 # License issuer private key (never commit)
 tools/.issuer-private.der
 config/*-license.json
+
+desktop/electron/node_modules/
+image-engine/launch-test.log
+

@@ -1,4 +1,4 @@
-"""NovFlow Image Engine DLC 本地 HTTP 客户端。"""
+"""NovFlow 本地生图引擎 HTTP 客户端。"""
 from __future__ import annotations
 
 import base64
@@ -36,7 +36,7 @@ def parse_size(size: str | None, kind: ImageKind = "illustration") -> tuple[int,
 
 
 class LocalDlcProvider:
-    """转发至用户本机 Image Engine DLC 服务。"""
+    """转发至用户本机 NovFlow 本地生图引擎服务。"""
 
     def __init__(self, user: User | None = None, *, kind: ImageKind = "illustration") -> None:
         self._user = user
@@ -60,7 +60,7 @@ class LocalDlcProvider:
                 return resp.json()
         except httpx.ConnectError:
             raise ImageEngineError(
-                "无法连接本地生图引擎。请确认 Image Engine DLC 已启动（默认 127.0.0.1:17860）。"
+                "无法连接本地生图引擎。请确认 NovFlow 本地生图引擎已启动（默认 127.0.0.1:17860）。"
             ) from None
         except httpx.HTTPStatusError as exc:
             raise ImageEngineError(f"本地引擎健康检查失败（HTTP {exc.response.status_code}）") from exc

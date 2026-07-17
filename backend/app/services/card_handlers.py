@@ -112,21 +112,37 @@ def _apply_outline(db: Session, book: Book, data: dict[str, Any], result: dict[s
         if not plan:
             plan = ChapterPlan(book_id=book.id, chapter_no=no)
             db.add(plan)
-        plan.title = item.get("title") or f"第{no}章"
-        plan.plot_points = item.get("plot_points") or item.get("synopsis") or ""
-        plan.comedy_core = item.get("comedy_core") or item.get("comedy_hook") or ""
-        plan.scene = item.get("scene") or ""
+        # 仅写入卡片中的非空字段，避免同步已采纳卡片时用空值覆盖导入的大纲
+        new_title = (item.get("title") or "").strip()
+        if new_title:
+            plan.title = new_title
+        elif not (plan.title or "").strip():
+            plan.title = f"第{no}章"
+        new_plot = (item.get("plot_points") or item.get("synopsis") or "").strip()
+        if new_plot:
+            plan.plot_points = new_plot
+        new_comedy = (item.get("comedy_core") or item.get("comedy_hook") or "").strip()
+        if new_comedy:
+            plan.comedy_core = new_comedy
+        new_scene = (item.get("scene") or "").strip()
+        if new_scene:
+            plan.scene = new_scene
         cast = item.get("cast") or item.get("characters") or []
-        if isinstance(cast, list):
+        if isinstance(cast, list) and cast:
             plan.character_names = "、".join(str(x) for x in cast)
         elif cast:
             plan.character_names = str(cast)
-        plan.meta_json = {
+        new_meta = {
             "cast": cast if isinstance(cast, list) else ([cast] if cast else []),
             "events": item.get("events") or [],
             "entrances": item.get("entrances") or [],
             "exits": item.get("exits") or [],
         }
+        if any(new_meta[k] for k in ("cast", "events", "entrances", "exits")):
+            existing_meta = plan.meta_json if isinstance(plan.meta_json, dict) else {}
+            plan.meta_json = {**existing_meta, **{k: v for k, v in new_meta.items() if v}}
+        elif not plan.meta_json:
+            plan.meta_json = new_meta
         ch = db.query(Chapter).filter(Chapter.book_id == book.id, Chapter.chapter_no == no).first()
         if not ch:
             ch = Chapter(book_id=book.id, chapter_no=no, title=plan.title, status="planned")

@@ -44,7 +44,7 @@ NovFlow 主程序默认通过**云端即梦 API** 生成封面、角色立绘与
 
 ```text
 ┌─────────────────┐         HTTP（仅本机）        ┌──────────────────────────┐
-│  NovFlow 主程序  │ ────────────────────────────► │  Image Engine DLC（用户机） │
+│  NovFlow 主程序  │ ────────────────────────────► │  NovFlow 本地生图引擎（用户机） │
 │  （设定/写作/UI） │ ◄──────────────────────────── │  独立进程 · 用户自担内容     │
 └─────────────────┘         图片 bytes / 状态      └──────────────────────────┘
          │
@@ -97,11 +97,11 @@ NovFlow 主程序默认通过**云端即梦 API** 生成封面、角色立绘与
 └───────────────────────────┬─────────────────────────────────┘
                             │ 仅当 local_dlc
 ┌───────────────────────────▼─────────────────────────────────┐
-│  NovFlow Image Engine（DLC 独立仓库/安装目录）                 │
+│  NovFlow 本地生图引擎（DLC 独立仓库/安装目录）                 │
 │  - nf-image-engine.exe（或同名服务）                          │
 │  - 内嵌 Python + diffusers/onnxruntime + CUDA 驱动检测        │
 │  - 默认监听 127.0.0.1:17860（可配置，禁止 0.0.0.0 默认暴露）    │
-│  - 模型目录 %ProgramData%/NovFlowImageEngine/models/          │
+│  - 模型目录 `{install_dir}/models/`（非 ProgramData）           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -124,10 +124,27 @@ async def generate(user, prompt, *, reference_images, size) -> bytes
 
 ## 4. DLC 组件构成
 
-### 4.1 安装包内容（建议）
+### 4.1 产品标识（与主程序分离，强制）
+
+DLC **不得**与 NovFlow 主程序共用显示名、开始菜单文件夹、默认安装目录或 Inno Setup `AppId`：
+
+| 项 | NovFlow 主程序 | NovFlow 本地生图引擎（DLC） |
+|----|----------------|---------------------------|
+| 显示名 / AppName | NovFlow | **NovFlow 本地生图引擎** |
+| 开始菜单文件夹 | NovFlow | **NovFlow 本地生图引擎** |
+| 默认安装目录 | `{autopf}\NovFlow` | **`{autopf}\NovFlowImageEngine`** |
+| 安装包文件名 | `NovFlowSetup.exe` | `NovFlowImageEngineDLCSetup.exe` |
+| AppId | `A7B3C9D1-…` | **独立 GUID**（见 `installer/novflow-dlc.iss`） |
+| 互斥体 | `Global\NovFlowDesktopElectron` | `Global\NovFlowImageEngineDLC` |
+
+构建：仓库根目录执行 `.\package-dlc.ps1`（可选 `-BundleLite` 内置约 4GB SD 1.5），输出 `dist/NovFlowImageEngineDLCSetup.exe`。
+
+**模型目录：** 默认 `{安装目录}\models\`（例如 `D:\Applications\NovFlowImageEngine\models`），**不再**默认使用 `C:\ProgramData\NovFlowImageEngine\models`。旧版 ProgramData 中有权重时，首次启动控制台会提示迁移。未内置模型时，控制台「模型」页提供**一键下载 Lite 基础模型**（国内 ModelScope / hf-mirror，约 4GB）。
+
+### 4.2 安装包内容（建议）
 
 ```text
-NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
+NovFlowImageEngineDLCSetup.exe         # 安装器（Inno Setup；产品名「NovFlow 本地生图引擎」）
 ├── engine/
 │   ├── nf-image-engine.exe            # 主服务（PyInstaller 单文件或目录式）
 │   ├── _internal/                     # 内嵌运行时（用户不可见）
@@ -140,21 +157,21 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 │   │   └── sdxl_base_1.0.safetensors
 │   └── pro/                           # 可选增量包
 │       └── flux1-schnell-q4.safetensors
-├── console/
-│   └── NovFlow Image Engine.exe       # 托盘 + 图形控制台（可选 Electron/Tauri 小壳）
+├── console/                           # 内置于 image_engine/console.py（Tk + pystray）
+│   └── （GUI 控制台 + 托盘，默认启动方式）
 ├── LICENSE-DLC.txt                    # DLC 专用许可与免责
 └── THIRD_PARTY_NOTICES.txt            # 开源模型与组件声明
 ```
 
-### 4.2 引擎控制台（零代码配置）
+### 4.3 引擎控制台（零代码配置）
 
 面向非技术用户的**唯一**配置界面，功能最小集：
 
 | 功能 | 说明 |
 |------|------|
-| 启动 / 停止引擎 | 注册 Windows 服务或开机自启（可选） |
+| 启动 / 停止引擎 | 图形控制台 + 系统托盘；关闭窗口隐藏到托盘，引擎继续运行；托盘「退出程序」完全停止 |
 | 显存检测 | 读取 GPU 型号与 VRAM，推荐 Lite/Std/Pro |
-| 模型包管理 | 已安装包列表；**离线**导入 `.safetensors`（从 DLC 网盘目录复制） |
+| 模型包管理 | 已安装包列表；**一键下载** Lite/Standard（ModelScope 镜像）；**离线**导入 `.safetensors` |
 | 端口与绑定 | 默认 `127.0.0.1:17860`；高级用户可改端口 |
 | 性能档位 | 「省显存 / 均衡 / 质量」三档，映射到分辨率、步数、tile VAE |
 | 连接测试 | 生成 64×64 测试图，供 NovFlow 设置页「测试本地引擎」调用 |
@@ -162,7 +179,7 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 
 **禁止**要求用户：编辑 `.env`、执行 `pip install`、配置 `CUDA_PATH`、使用 VPN 访问 HuggingFace。
 
-### 4.3 离线分发策略
+### 4.4 离线分发策略
 
 为满足「无需翻墙下载」：
 
@@ -398,7 +415,7 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 | 术语 | 含义 |
 |------|------|
 | **主程序** | NovFlow 应用（写作、设定、云端即梦） |
-| **Image Engine DLC** | 可选本地生图扩展安装包 |
+| **NovFlow 本地生图引擎** | 可选本地生图扩展安装包（独立于主程序） |
 | **Lite / Standard / Pro** | 按显存与模型能力划分的引擎档位 |
 
 ### 12.2 相关文档
@@ -411,6 +428,7 @@ NovFlow-ImageEngine-Setup.exe          # 安装器（Inno Setup / NSIS）
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 0.2 | 2026-07 | 模型目录改至安装目录；GUI 一键下载 Lite；可选 -BundleLite 打包 SD 1.5 |
 | 0.1 | 2026-06 | 初稿：DLC 边界、三档显存、API、集成清单、免责框架 |
 
 ---

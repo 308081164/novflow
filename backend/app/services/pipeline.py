@@ -112,12 +112,32 @@ def ensure_book_chapter_slots(db: Session, book: Book, *, commit: bool = True) -
     return target
 
 
+def chapter_plan_has_outline(plan: ChapterPlan) -> bool:
+    """是否算「已有章节大纲」：与写作页/大纲页展示条件一致，不限于 plot_points。"""
+    if (plan.plot_points or "").strip():
+        return True
+    if (plan.scene or "").strip():
+        return True
+    if (plan.comedy_core or "").strip():
+        return True
+    if (plan.character_names or "").strip():
+        return True
+    title = (plan.title or "").strip()
+    if title and title not in {f"第{plan.chapter_no}章", f"第 {plan.chapter_no} 章"}:
+        return True
+    meta = plan.meta_json if isinstance(plan.meta_json, dict) else {}
+    for key in ("events", "cast", "entrances", "exits"):
+        val = meta.get(key)
+        if isinstance(val, list) and any(str(x).strip() for x in val):
+            return True
+        if isinstance(val, str) and val.strip():
+            return True
+    return False
+
+
 def count_outline_planned(db: Session, book_id: int) -> int:
-    return (
-        db.query(ChapterPlan)
-        .filter(ChapterPlan.book_id == book_id, ChapterPlan.plot_points != "")
-        .count()
-    )
+    plans = db.query(ChapterPlan).filter(ChapterPlan.book_id == book_id).all()
+    return sum(1 for p in plans if chapter_plan_has_outline(p))
 
 
 def _seed_chase_comedy(db: Session, book: Book) -> None:
@@ -319,9 +339,28 @@ async def run_ai_lint(db: Session, book: Book, chapter: Chapter) -> None:
 
 
 async def execute_generation_job(db: Session, job_id: int) -> None:
+    from app.config import IS_DESKTOP
+    from app.deps_license import require_desktop_license
+
     job = db.query(GenerationJob).filter(GenerationJob.id == job_id).first()
     if not job:
         return
+
+    if IS_DESKTOP:
+        try:
+            require_desktop_license()
+        except Exception as exc:
+            from fastapi import HTTPException
+
+            if isinstance(exc, HTTPException) and exc.status_code == 403:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                job.status = "failed"
+                job.error = str(detail.get("message") or "授权已过期，请前往设置完成激活")
+                job.finished_at = datetime.utcnow()
+                db.commit()
+                return
+            raise
+
     job.status = "running"
     db.commit()
 
